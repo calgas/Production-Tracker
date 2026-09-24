@@ -988,6 +988,41 @@
     .modal-actions-split .btn-danger { order: 2; min-height: 44px; }
   }
   @keyframes sheetSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  /* Opens upward when the space below the field is too short — usually
+     because the on-screen keyboard has taken the lower half of the screen.
+     max-height is set per-open from the space actually visible (see
+     placeComboList_), so this only has to flip the anchor. */
+  .combo-list.open-up { top: auto; bottom: calc(100% + 4px); }
+  /* Suggestion dropdowns (upgraded <input list> fields) carry free-form
+     labels such as "CODE — NAME"; those wrap rather than being cut off,
+     and a code/name pair is split onto two lines so both stay readable on
+     a narrow phone. */
+  .combo-suggest .combo-option { white-space: normal; overflow: visible; }
+  .combo-opt-sub { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--ink-faint); }
+  .combo-option.is-active .combo-opt-sub { color: inherit; opacity: 0.8; }
+  /* When a focused combobox is scrolled into view, keep it clear of the
+     sticky top bar instead of parking it underneath. */
+  .combo .combo-input { scroll-margin-top: 96px; scroll-margin-bottom: 12px; }
+
+  /* A panel clips its own corners, which also clipped any dropdown opened
+     inside one. Panels holding a form opt out; panels holding a table keep
+     the clipping, since .table-scroll does the scrolling there. */
+  .panel-form { overflow: visible; position: relative; }
+  /* Each panel makes its own stacking context through its entry animation,
+     so a later panel paints over a dropdown opened in an earlier one
+     whatever z-index the list itself carries. While a field inside is
+     focused — which is exactly while its dropdown is open — its panel
+     comes to the front. */
+  .panel-form:focus-within { z-index: 30; }
+
+  /* .panel has no padding of its own — its children bring their own. A form
+     placed straight into one would otherwise sit flush against the border. */
+  .panel > form { padding: 20px 24px 24px; }
+  .panel > .trace-result { padding: 0 24px 24px; }
+  @media (max-width: 768px) {
+    .panel > form { padding: 16px 16px 20px; }
+    .panel > .trace-result { padding: 0 16px 20px; }
+  }
 </style>
 </head>
 <body>
@@ -1046,6 +1081,7 @@
       </div>
       <div class="form-error hidden" id="loginError"></div>
       <button type="submit" class="btn-primary" id="loginBtn">Sign in</button>
+      <button type="button" class="btn-ghost hidden" id="retryBtn" style="margin-top:10px;width:100%">Try again</button>
     </form>
     <div class="auth-foot">
       <span class="muted">Same account as Stock Management.</span>
@@ -1137,7 +1173,7 @@
         </div>
       </div>
 
-      <div class="panel hidden" id="placeOrderPanel">
+      <div class="panel panel-form hidden" id="placeOrderPanel">
         <div class="panel-head"><h3>Place an order</h3><span class="freshness-label">Marketing, Dispatch and Admin</span></div>
         <form id="orderForm">
           <div class="form-grid">
@@ -1179,7 +1215,7 @@
     <section class="page hidden" id="page-requests">
       <div class="page-head"><h2>Requests</h2><p>Material from Store, and material made upstream.</p></div>
 
-      <div class="panel hidden" id="requestRmPanel">
+      <div class="panel panel-form hidden" id="requestRmPanel">
         <div class="panel-head"><h3>Request RM from Store</h3></div>
         <form id="rmRequestForm">
           <div class="form-grid">
@@ -1196,7 +1232,7 @@
         </form>
       </div>
 
-      <div class="panel hidden" id="requestInternalPanel">
+      <div class="panel panel-form hidden" id="requestInternalPanel">
         <div class="panel-head"><h3>Request internal material</h3><span class="freshness-label" id="internalTargetHint"></span></div>
         <form id="internalRequestForm">
           <div class="form-grid">
@@ -1239,7 +1275,7 @@
     <section class="page hidden" id="page-production">
       <div class="page-head"><h2>Production</h2><p>Metallization through Short Clearance.</p></div>
 
-      <div class="panel hidden" id="createMppPanel">
+      <div class="panel panel-form hidden" id="createMppPanel">
         <div class="panel-head"><h3>Create MPP code</h3><span class="freshness-label">Metallization</span></div>
         <form id="createMppForm">
           <div class="form-grid">
@@ -1251,7 +1287,7 @@
         </form>
       </div>
 
-      <div class="panel hidden" id="executeBomPanel">
+      <div class="panel panel-form hidden" id="executeBomPanel">
         <div class="panel-head"><h3>Slit and execute MPP BOM</h3><span class="freshness-label">Slitting · posts real stock movements</span></div>
         <form id="executeBomForm">
           <div class="form-grid">
@@ -1267,7 +1303,7 @@
         </form>
       </div>
 
-      <div class="panel hidden" id="createElementPanel">
+      <div class="panel panel-form hidden" id="createElementPanel">
         <div class="panel-head"><h3>Create Element</h3><span class="freshness-label">Winding</span></div>
         <form id="createElementForm">
           <div class="form-grid">
@@ -1282,7 +1318,7 @@
         </form>
       </div>
 
-      <div class="panel hidden" id="sprayPanel">
+      <div class="panel panel-form hidden" id="sprayPanel">
         <div class="panel-head"><h3>Spray</h3><span class="freshness-label">Spray</span></div>
         <form id="sprayForm">
           <div class="form-grid">
@@ -1294,7 +1330,7 @@
         </form>
       </div>
 
-      <div class="panel hidden" id="scPanel">
+      <div class="panel panel-form hidden" id="scPanel">
         <div class="panel-head"><h3>Short Clearance</h3><span class="freshness-label">A pass executes the ELE BOM · a fail consumes nothing</span></div>
         <form id="scForm">
           <div class="form-grid">
@@ -1334,7 +1370,7 @@
     <!-- ===================== TRACE ===================== -->
     <section class="page hidden" id="page-trace">
       <div class="page-head"><h2>Trace</h2><p>Any element's full history — every stage, and the batch it came from.</p></div>
-      <div class="panel">
+      <div class="panel panel-form">
         <div class="panel-head"><h3>Trace an element</h3></div>
         <form id="traceForm">
           <div class="toolbar">
@@ -1343,7 +1379,7 @@
           </div>
         </form>
         <div class="form-error hidden" id="traceError"></div>
-        <div id="traceResult"></div>
+        <div id="traceResult" class="trace-result"></div>
       </div>
     </section>
   </div>
@@ -1593,7 +1629,7 @@ async function handleLogin(e) {
     document.getElementById('loginPass').value = '';
     await enterApp();
   } catch (err) {
-    errEl.textContent = err.message;
+    errEl.textContent = explainError(err);
     errEl.classList.remove('hidden');
   } finally {
     btn.disabled = false; btn.textContent = 'Sign in';
@@ -1603,6 +1639,8 @@ async function handleLogin(e) {
 function signOut() {
   clearSession();
   state.session = null; state.me = null;
+  document.getElementById('retryBtn').classList.add('hidden');
+  document.getElementById('loginError').classList.add('hidden');
   document.getElementById('appShell').classList.add('hidden');
   document.getElementById('loginScreen').classList.remove('hidden');
 }
@@ -2023,6 +2061,16 @@ function wireForms() {
   });
 }
 
+// An unreadable answer almost always means the request never ran: Apps
+// Script redirected it to a Google sign-in page because the deployment
+// isn't open to everyone. Worth saying, because the raw message sounds
+// like a network fault and sends people looking in the wrong place.
+function explainError(err) {
+  if (!err || !err.indeterminate) return err ? err.message : 'Request failed';
+  return err.message + ' If this keeps happening, check the Apps Script deployment is set to ' +
+         '"Who has access: Anyone" — one that asks for a Google sign-in answers with a page the app cannot read.';
+}
+
 function showFormError(id, message) {
   const el = document.getElementById(id);
   if (!el) return toast(message, true);
@@ -2064,7 +2112,10 @@ function showPage(name) {
   pageEl.classList.remove('hidden');
   document.querySelectorAll('.nav-link').forEach(a => a.classList.toggle('active', a.dataset.page === name));
   syncTopbarTitle(pageEl);
-  window.scrollTo({ top: 0 });
+  // Each .page is its own scroll container (.main is fixed at 100vh), so
+  // scrolling the window here would do nothing and the new page would open
+  // wherever it was last left — with its heading under the top bar.
+  pageEl.scrollTop = 0;
 }
 
 // Mirrors the active page's own <h2>/<p> into the topbar, so the heading is
@@ -2179,6 +2230,19 @@ async function boot() {
 
   document.getElementById('loginForm').addEventListener('submit', handleLogin);
   document.getElementById('logoutBtn').addEventListener('click', signOut);
+  document.getElementById('retryBtn').addEventListener('click', async () => {
+    const retry = document.getElementById('retryBtn');
+    retry.disabled = true; retry.textContent = 'Trying…';
+    try {
+      document.getElementById('loginError').classList.add('hidden');
+      retry.classList.add('hidden');
+      await enterApp();
+    } catch (err) {
+      handleStartupFailure(err);
+    } finally {
+      retry.disabled = false; retry.textContent = 'Try again';
+    }
+  });
   document.getElementById('themeToggleBtn').addEventListener('click', () => toggleTheme());
   document.querySelectorAll('.nav-link').forEach(a => {
     a.addEventListener('click', (e) => { e.preventDefault(); showPage(a.dataset.page); });
@@ -2198,14 +2262,37 @@ async function boot() {
   try {
     await enterApp();
   } catch (err) {
-    // A session that Stock Management no longer recognises — most often
-    // because it expired, or someone signed out in the other app.
+    handleStartupFailure(err);
+  }
+}
+
+// Two very different failures used to be treated the same, and the second
+// one looked to an operator like being logged out for no reason:
+//
+//   the session was rejected  -> it really is over; sign in again
+//   the server wasn't reached -> the session is fine; nothing to redo
+function handleStartupFailure(err) {
+  const rejected = /log in again|invalid or expired/i.test(err.message || '');
+  const errEl = document.getElementById('loginError');
+  const retry = document.getElementById('retryBtn');
+
+  document.getElementById('appShell').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+
+  if (rejected) {
     clearSession();
     state.session = null;
-    document.getElementById('appShell').classList.add('hidden');
-    document.getElementById('loginScreen').classList.remove('hidden');
-    if (!/log in again/i.test(err.message)) toast(err.message, true);
+    retry.classList.add('hidden');
+    errEl.classList.add('hidden');
+    return;
   }
+
+  // The session is kept: signing in again wouldn't help, and throwing it
+  // away would make a passing outage look like an account problem.
+  errEl.textContent = 'Signed in as ' + ((state.session && state.session.name) || 'you') +
+                      ', but the server could not be reached. ' + explainError(err);
+  errEl.classList.remove('hidden');
+  retry.classList.remove('hidden');
 }
 
 document.addEventListener('DOMContentLoaded', boot);
