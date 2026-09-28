@@ -24,7 +24,7 @@
 // of being stuck on an old cached one. Keep this in step with APP_VERSION
 // in index.html.
 const CACHE_PREFIX = 'production-tracker-shell-';
-const CACHE_VERSION = CACHE_PREFIX + 'v1';
+const CACHE_VERSION = CACHE_PREFIX + 'v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -68,11 +68,11 @@ function isBackendRequest(url) {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
-  // Live stock data — always network, never cached or served from cache.
-  if (isBackendRequest(url) || e.request.method !== 'GET') {
-    e.respondWith(fetch(e.request));
-    return;
-  }
+  // API calls and anything that isn't a GET are left entirely to the
+  // browser: no respondWith, so this worker isn't in their path at all.
+  // Re-sending them from here cached nothing and added a layer that can
+  // fail on its own, mid-update or when the browser stops the worker.
+  if (isBackendRequest(url) || e.request.method !== 'GET') return;
 
   // App shell & static assets — cache-first, refresh in the background so
   // the next visit has the latest version too.
