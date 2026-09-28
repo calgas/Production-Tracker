@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="app-version" content="3.0.0">
+<meta name="app-version" content="3.1.0">
 <meta name="theme-color" content="#f3f0ea" id="metaThemeColor">
 <meta name="description" content="Order to dispatch production tracking for CALGAS Capacitors.">
 <title>CALGAS · Production Tracker</title>
@@ -1023,6 +1023,52 @@
     .panel > form { padding: 16px 16px 20px; }
     .panel > .trace-result { padding: 0 16px 20px; }
   }
+
+  /* Files on handovers. */
+  #hoFilesModal { z-index: 110; }
+  .attach-field { grid-column: 1 / -1; }
+  .attach-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn-attach { padding: 8px 12px; font-size: 13px; }
+  .attach-note { font-size: 12px; color: var(--ink-soft); }
+  .attach-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .attach-list:empty { display: none; }
+  .attach-tray { margin-top: 8px; padding: 8px; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
+  .attach-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
+  .attach-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: var(--line);
+                  display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: var(--ink-soft); }
+  .attach-meta { flex: 1; min-width: 0; }
+  .attach-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attach-sub { font-size: 11.5px; color: var(--ink-soft); }
+  .attach-sub.is-bad { color: var(--critical, #c0392b); }
+  .attach-sub.is-ok { color: #2e7d32; }
+  .attach-x { border: 0; background: transparent; color: var(--ink-soft); font-size: 16px; cursor: pointer; padding: 4px 8px; }
+  .attach-status { font-size: 12.5px; color: var(--ink-soft); margin-top: 6px; }
+  .attach-status:empty { display: none; }
+  .attach-chip { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 2px 8px; border-radius: 999px;
+                 border: 1px solid var(--line); background: transparent; font: inherit; font-size: 11.5px; font-weight: 700;
+                 color: var(--ink); cursor: pointer; vertical-align: middle; line-height: 1.6; }
+  .attach-chip.is-empty { color: var(--ink-soft); font-weight: 600; opacity: .7; }
+  .attach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin: 6px 0 12px; }
+  .attach-tile { position: relative; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+  .attach-open { display: block; width: 100%; border: 0; padding: 0; background: transparent; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .attach-tile-img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; background: var(--line); }
+  .attach-tile-pdf { width: 100%; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
+                     font-weight: 800; font-size: 18px; letter-spacing: .06em; color: #fff; background: #b3261e; }
+  .attach-tile-cap { padding: 6px 8px; }
+  .attach-tile-cap .attach-name { font-size: 12px; }
+  .attach-remove { position: absolute; top: 5px; right: 5px; border: 0; border-radius: 999px; width: 28px; height: 28px;
+                   background: rgba(0, 0, 0, .6); color: #fff; cursor: pointer; font-size: 13px; }
+  .attach-empty { grid-column: 1 / -1; color: var(--ink-soft); font-size: 13px; padding: 8px 0; }
+  .image-viewer { position: fixed; inset: 0; z-index: 5000; background: rgba(10, 10, 12, .95); display: flex; flex-direction: column; }
+  .iv-bar { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px; color: #fff; }
+  .iv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .iv-btn { border: 1px solid rgba(255, 255, 255, .35); background: transparent; color: #fff; border-radius: 8px; padding: 7px 11px;
+            font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; }
+  .iv-scroll { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center;
+               padding-bottom: env(safe-area-inset-bottom, 0px); touch-action: pan-x pan-y pinch-zoom; }
+  .iv-scroll img { max-width: 100%; max-height: 100%; cursor: zoom-in; }
+  .iv-scroll.is-zoomed { align-items: flex-start; justify-content: flex-start; }
+  .iv-scroll.is-zoomed img { max-width: none; max-height: none; cursor: zoom-out; }
 </style>
 </head>
 <body>
@@ -1240,6 +1286,13 @@
             <div class="field hidden" id="hoSendOrderField"><label for="hoSendOrder">Order (optional)</label><input type="text" id="hoSendOrder" list="hoOrderOptions"><datalist id="hoOrderOptions"></datalist></div>
             <div class="field"><label for="hoSendRef">Reference (optional)</label><input type="text" id="hoSendRef"></div>
             <div class="field"><label for="hoSendRemarks">Remarks (optional)</label><input type="text" id="hoSendRemarks"></div>
+            <div class="field attach-field">
+              <label>Files (optional)</label>
+              <div class="attach-bar"><button type="button" class="btn-ghost btn-attach" data-files-pick="send">📎 Add photos or PDFs</button><span class="attach-note">Invoice, challan, photo… up to 10</span></div>
+              <input type="file" id="hoSendFileInput" accept="image/*,application/pdf" multiple hidden>
+              <div class="attach-list" id="hoSendFiles"></div>
+              <div class="attach-tray hidden" id="hoSendTray"><div class="attach-list"></div><div class="attach-status"></div><div class="attach-bar"><button type="button" class="btn-ghost btn-attach hidden" data-tray-retry="send">Retry files</button><button type="button" class="btn-ghost btn-attach hidden" data-tray-dismiss="send">Dismiss</button></div></div>
+            </div>
           </div>
           <div class="hint" id="hoSendHint"></div>
           <div class="form-error hidden" id="hoSendError"></div>
@@ -1258,6 +1311,13 @@
             <div class="field"><label for="hoAskItem">Item</label><input type="text" id="hoAskItem" list="hoAskItems" placeholder="Search by code or name…" required><datalist id="hoAskItems"></datalist></div>
             <div class="field"><label for="hoAskQty">Quantity <span class="muted" id="hoAskUnit"></span></label><input type="number" id="hoAskQty" step="any" min="0" required></div>
             <div class="field"><label for="hoAskRemarks">Remarks (optional)</label><input type="text" id="hoAskRemarks"></div>
+            <div class="field attach-field">
+              <label>Files (optional)</label>
+              <div class="attach-bar"><button type="button" class="btn-ghost btn-attach" data-files-pick="ask">📎 Add photos or PDFs</button><span class="attach-note">A drawing, a PO… up to 10</span></div>
+              <input type="file" id="hoAskFileInput" accept="image/*,application/pdf" multiple hidden>
+              <div class="attach-list" id="hoAskFiles"></div>
+              <div class="attach-tray hidden" id="hoAskTray"><div class="attach-list"></div><div class="attach-status"></div><div class="attach-bar"><button type="button" class="btn-ghost btn-attach hidden" data-tray-retry="ask">Retry files</button><button type="button" class="btn-ghost btn-attach hidden" data-tray-dismiss="ask">Dismiss</button></div></div>
+            </div>
           </div>
           <div class="form-error hidden" id="hoAskError"></div>
           <div class="modal-actions-right"><button type="submit" class="btn-primary" id="hoAskBtn">Ask</button></div>
@@ -1331,7 +1391,7 @@
    - PT_API_URL      everything else.
    ========================================================================= */
 
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.1.0';
 const PT_API_URL = 'https://script.google.com/macros/s/AKfycbx_STLX2W1VDwOsxv3UpdpbPitg2ICXHXtbItWEvesmoQsuBdKO9Eg6KHwSoIZlPeO0CA/exec';
 const STOCK_API_URL = 'https://script.google.com/macros/s/AKfycbyxTvERmZY63TC9Pz4tMXb9x3mbT9hOe0YDuq2dNr5D5tkku2kYffFtmEzILuP1G9DrKA/exec';
 
@@ -1347,6 +1407,8 @@ const LOGO_ICON = 'https://calgas.github.io/Stock-Management/logo/icon-192.png';
 // Longer than the backend's 20s lock wait, so the app never stops
 // listening while a write is still going ahead.
 const API_TIMEOUT_MS = 30000;
+// A file is far bigger than a handover, and a phone may be on a weak signal.
+const ACTION_TIMEOUT_MS = { uploadHandoverFile: 180000, getHandoverFile: 120000 };
 
 // A request that never came back may still have been carried out. "Not
 // done" is only trusted once the attempt is too old to still be running.
@@ -1358,7 +1420,8 @@ const PENDING_RECHECK_MS = 8000;
 // recognises the ID and refuses to do the work twice.
 const MUTATING_ACTIONS = {
   placeOrder: true, requestHandover: true, sendHandover: true, receiveHandover: true,
-  rejectHandover: true, declineHandover: true, cancelHandover: true, recordWIP: true
+  rejectHandover: true, declineHandover: true, cancelHandover: true, recordWIP: true,
+  uploadHandoverFile: true, removeHandoverFile: true
 };
 
 const state = {
@@ -1391,7 +1454,9 @@ async function api(action, params, apiUrl) {
 // copy can't do the work twice. Filled in as the handover actions arrive.
 const REPEATABLE_WRITES = {
   // Each finds its work already done on a second copy and says so.
-  receiveHandover: true, rejectHandover: true, declineHandover: true, cancelHandover: true
+  receiveHandover: true, rejectHandover: true, declineHandover: true, cancelHandover: true,
+  // (An upload carries its own duplicate-safe ID, which already makes it safe.)
+  removeHandoverFile: true
 };
 
 // Waits before each retry when Google's reply isn't the app's own. Its
@@ -1425,7 +1490,7 @@ async function _request(url, action, body, attempt) {
   attempt = attempt || 0;
   const isWrite = !!MUTATING_ACTIONS[action];
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), ACTION_TIMEOUT_MS[action] || API_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -1824,7 +1889,7 @@ function renderOrders() {
 
 function hoLabel(h) {
   return '<span class="mono">' + escapeHtml(h.HandoverID) + '</span>' +
-    (h.Direction === 'Return' ? ' <span class="status status-none">return</span>' : '');
+    (h.Direction === 'Return' ? ' <span class="status status-none">return</span>' : '') + hoFilesChip(h);
 }
 
 function hoItem(h) {
@@ -2025,7 +2090,9 @@ function receiveNote(h) {
   if (h.Kind === 'RM') what = h.ToDept === stock ? (h.Direction === 'Forward' ? 'a Receipt into ' + stock : 'a Return into ' + stock) : 'an Issue to ' + h.ToDept;
   else what = h.ToDept === stock ? (h.Direction === 'Forward' ? 'FG Production into ' + stock : 'an FG Return into ' + stock)
                                  : (h.Direction === 'Forward' ? 'an FG Dispatch' : 'an adjustment taking it out of stock');
-  return 'Receive ' + q + '?\n\nThis posts ' + what + ' in Stock Management.';
+  const n = Number(h.AttachmentCount) || 0;
+  return 'Receive ' + q + '?\n\nThis posts ' + what + ' in Stock Management.' +
+    (n ? '\n\nIts ' + n + (n === 1 ? ' file goes' : ' files go') + ' onto that entry too.' : '');
 }
 
 function findShown(id) {
@@ -2061,6 +2128,490 @@ async function onHandoverButton(e) {
 }
 
 /* =========================================================================
+   FILES ON HANDOVERS
+
+   Photos and PDFs on any handover, never required. A photo is shrunk on
+   the phone before it's sent — readable at 2000 px on its long side, at a
+   fraction of the size — with a small preview alongside. Files go one at a
+   time after the handover itself is saved, each with its own
+   duplicate-safe ID: a failed file costs only that file, and a retry can
+   never store it twice. When a raw-material or finished-goods handover is
+   received, its files go onto the Stock Management entry it posts.
+   ========================================================================= */
+
+const ATTACH_MAX_FILES = 10;
+const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
+const ATTACH_IMAGE_EDGE = 2000;
+const ATTACH_THUMB_EDGE = 240;
+
+const formFiles = { send: [], ask: [] };     // picked, not yet sent
+const formTrays = { send: null, ask: null }; // { handoverId, items } once the handover is saved
+let hoFilesView = null;                      // the viewer's handover and its files
+const hoFileCache = {};                      // opened files, so a second look is instant
+
+function formatBytes(n) {
+  n = Number(n) || 0;
+  return n >= 1048576 ? (Math.round(n / 104857.6) / 10) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+}
+
+function readAsBase64(blob) {
+  return new Promise(function (resolve, reject) {
+    const r = new FileReader();
+    r.onload = function () { resolve(String(r.result).split(',')[1] || ''); };
+    r.onerror = function () { reject(new Error('The file couldn\u2019t be read.')); };
+    r.readAsDataURL(blob);
+  });
+}
+
+function loadImageFrom(file) {
+  return new Promise(function (resolve, reject) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('unreadable')); };
+    img.src = url;
+  });
+}
+
+// Never enlarges; a white background first, so transparency doesn't turn black.
+function drawScaled(img, edge, quality) {
+  const scale = Math.min(1, edge / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  g.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return new Promise(function (resolve, reject) {
+    canvas.toBlob(function (b) { b ? resolve(b) : reject(new Error('The photo couldn\u2019t be prepared.')); }, 'image/jpeg', quality);
+  });
+}
+
+function isPdfFile(file) { return file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''); }
+
+async function prepareAttachment(file) {
+  if (isPdfFile(file)) {
+    if (file.size > ATTACH_MAX_BYTES) throw new Error('Larger than 10 MB \u2014 too big to attach.');
+    return { fileName: file.name, mimeType: 'application/pdf', data: await readAsBase64(file), thumb: '', size: file.size };
+  }
+  let img;
+  try {
+    img = await loadImageFrom(file);
+  } catch (err) {
+    throw new Error(/^image\//.test(file.type) || /\.(heic|heif)$/i.test(file.name || '')
+      ? 'This photo\u2019s format can\u2019t be read here. Take it with the camera option, or save it as JPEG.'
+      : 'Only photos and PDFs can be attached.');
+  }
+  const full = await drawScaled(img, ATTACH_IMAGE_EDGE, 0.85);
+  const thumb = await drawScaled(img, ATTACH_THUMB_EDGE, 0.7);
+  if (full.size > ATTACH_MAX_BYTES) throw new Error('Larger than 10 MB even after shrinking.');
+  return {
+    fileName: String(file.name || 'photo').replace(/\.[A-Za-z0-9]{1,5}$/, '') + '.jpg', mimeType: 'image/jpeg',
+    data: await readAsBase64(full), thumb: await readAsBase64(thumb), size: full.size
+  };
+}
+
+function makeAttachItem(file) {
+  const item = {
+    id: newClientTxnId(), clientTxnId: newClientTxnId(), name: file.name || 'file', size: file.size,
+    isPdf: isPdfFile(file), status: 'preparing', error: '', preview: '', prepared: null
+  };
+  if (!item.isPdf && /^image\//.test(file.type)) { try { item.preview = URL.createObjectURL(file); } catch (e) {} }
+  item.ready = prepareAttachment(file).then(function (p) {
+    item.prepared = p; item.size = p.size;
+    if (item.status === 'preparing') item.status = 'ready';
+  }).catch(function (err) { item.status = 'invalid'; item.error = err.message; });
+  return item;
+}
+
+function releaseAttachItems(list) {
+  (list || []).forEach(function (i) { if (i.preview) { URL.revokeObjectURL(i.preview); i.preview = ''; } });
+}
+
+function addPickedFiles(list, fileList, alreadyThere) {
+  const room = ATTACH_MAX_FILES - (alreadyThere || 0) - list.filter(function (i) { return i.status !== 'invalid'; }).length;
+  const files = Array.from(fileList || []);
+  if (files.length > room) {
+    toast('Up to ' + ATTACH_MAX_FILES + ' files per handover \u2014 ' + (room > 0 ? 'only the first ' + room + ' were added.' : 'no more can be added.'), true);
+  }
+  const added = files.slice(0, Math.max(0, room)).map(makeAttachItem);
+  added.forEach(function (i) { list.push(i); });
+  return added;
+}
+
+function attachItemHtml(item, removable) {
+  const face = item.preview
+    ? '<img class="attach-thumb" src="' + item.preview + '" alt="">'
+    : '<span class="attach-thumb">' + (item.isPdf ? 'PDF' : 'FILE') + '</span>';
+  const words = {
+    preparing: 'Getting ready\u2026', ready: formatBytes(item.size), uploading: 'Uploading\u2026',
+    done: 'Attached \u2713', failed: 'Didn\u2019t upload: ' + item.error, invalid: item.error
+  }[item.status];
+  const tone = item.status === 'failed' || item.status === 'invalid' ? ' is-bad' : item.status === 'done' ? ' is-ok' : '';
+  return '<div class="attach-item">' + face +
+    '<div class="attach-meta"><div class="attach-name">' + escapeHtml(item.name) + '</div>' +
+    '<div class="attach-sub' + tone + '">' + escapeHtml(words) + '</div></div>' +
+    (removable && item.status !== 'done' && item.status !== 'uploading'
+      ? '<button type="button" class="attach-x" data-attach-drop="' + item.id + '" aria-label="Remove ' + escapeHtml(item.name) + '">\u2715</button>' : '') +
+    '</div>';
+}
+
+async function uploadHoItem(handoverId, item) {
+  item.status = 'uploading'; item.error = '';
+  try {
+    await item.ready;
+    if (item.status === 'invalid') return;
+    const p = item.prepared;
+    await api('uploadHandoverFile', { handoverId: handoverId, fileName: p.fileName, mimeType: p.mimeType,
+                                      data: p.data, thumb: p.thumb, clientTxnId: item.clientTxnId });
+    item.status = 'done';
+    item.prepared = null;
+  } catch (err) {
+    item.status = 'failed'; item.error = err.message;
+  }
+}
+
+// What the buttons offer. The backend checks again for itself.
+function hoWide() { return !!state.me && (state.me.isAdmin || perm('pt.handover.any')); }
+function hoParty(h) {
+  return hoWide() || (!!state.me && (perm('pt.handover.send') || perm('pt.handover.receive')) &&
+                      (state.me.department === h.FromDept || state.me.department === h.ToDept));
+}
+function canAddHoFiles(h) { return ['Rejected', 'Declined', 'Cancelled'].indexOf(h.Status) === -1 && hoParty(h); }
+function canRemoveHoFile(h, a) {
+  if (h.Status === 'Received') return hoWide();
+  return hoWide() || (hoParty(h) && state.me.department === a.dept);
+}
+
+function hoFilesChip(h) {
+  const n = Number(h.AttachmentCount) || 0;
+  const data = ' data-ho-files="' + escapeHtml(h.HandoverID) + '"';
+  if (n > 0) return ' <button type="button" class="attach-chip"' + data + ' title="' + n + (n === 1 ? ' file' : ' files') + '">📎 ' + n + '</button>';
+  if (canAddHoFiles(h)) return ' <button type="button" class="attach-chip is-empty"' + data + ' title="Add files">📎+</button>';
+  return '';
+}
+
+function noteHoCount(id, n) {
+  const h = findShown(id);
+  if (!h) return;
+  h.AttachmentCount = n;
+  document.querySelectorAll('[data-ho-files]').forEach(function (b) {
+    if (b.dataset.hoFiles === id) b.outerHTML = hoFilesChip(h).trim();
+  });
+}
+
+/* ---------- on the Send and Ask forms ---------- */
+
+function formEls(which) {
+  const W = which === 'send' ? 'Send' : 'Ask';
+  return { list: document.getElementById('ho' + W + 'Files'), tray: document.getElementById('ho' + W + 'Tray'),
+           input: document.getElementById('ho' + W + 'FileInput') };
+}
+
+function renderFormFiles(which) {
+  const el = formEls(which);
+  el.list.innerHTML = formFiles[which].map(function (i) { return attachItemHtml(i, true); }).join('');
+  const tray = formTrays[which];
+  el.tray.classList.toggle('hidden', !tray);
+  if (!tray) return;
+  el.tray.querySelector('.attach-list').innerHTML = tray.items.map(function (i) { return attachItemHtml(i, false); }).join('');
+  const failed = tray.items.some(function (i) { return i.status === 'failed'; });
+  el.tray.querySelector('[data-tray-retry]').classList.toggle('hidden', !failed || tray.busy);
+  el.tray.querySelector('[data-tray-dismiss]').classList.toggle('hidden', !failed || tray.busy);
+}
+
+// The handover is saved; its files follow, shown in a tray under the form
+// so the form is free for the next one.
+function startFormUploads(which, handoverId) {
+  const picked = formFiles[which];
+  const items = picked.filter(function (i) { return i.status !== 'invalid'; });
+  releaseAttachItems(picked.filter(function (i) { return i.status === 'invalid'; }));
+  formFiles[which] = [];
+  if (!items.length || !handoverId) { renderFormFiles(which); return; }
+  if (formTrays[which]) releaseAttachItems(formTrays[which].items);
+  formTrays[which] = { handoverId: handoverId, items: items, busy: false };
+  renderFormFiles(which);
+  runFormUploads(which);
+}
+
+async function runFormUploads(which) {
+  const tray = formTrays[which];
+  if (!tray || tray.busy) return;
+  tray.busy = true;
+  const status = formEls(which).tray.querySelector('.attach-status');
+  const todo = tray.items.filter(function (i) { return i.status !== 'invalid' && i.status !== 'done'; });
+  for (let n = 0; n < todo.length; n++) {
+    status.textContent = tray.handoverId + ' is saved. Uploading file ' + (n + 1) + ' of ' + todo.length + '…';
+    todo[n].status = 'uploading';
+    renderFormFiles(which);
+    await uploadHoItem(tray.handoverId, todo[n]);
+    renderFormFiles(which);
+  }
+  tray.busy = false;
+  const done = tray.items.filter(function (i) { return i.status === 'done'; }).length;
+  const failed = tray.items.filter(function (i) { return i.status === 'failed'; }).length;
+  if (formTrays[which] !== tray) return;
+  if (!failed) {
+    if (done) toast(done + (done === 1 ? ' file' : ' files') + ' attached to ' + tray.handoverId);
+    releaseAttachItems(tray.items);
+    formTrays[which] = null;
+    status.textContent = '';
+  } else {
+    status.textContent = tray.handoverId + ' is saved. ' + failed + (failed === 1 ? ' file' : ' files') + ' didn\u2019t upload \u2014 ' +
+      'Retry, or add ' + (failed === 1 ? 'it' : 'them') + ' later from its 📎.';
+  }
+  renderFormFiles(which);
+  await refreshAll({ quiet: true });
+}
+
+/* ---------- the viewer ---------- */
+
+async function openHoFiles(id) {
+  const h = findShown(id);
+  if (!h) return;
+  if (hoFilesView && !hoFilesView.busy) releaseAttachItems(hoFilesView.pending);
+  hoFilesView = { h: h, items: [], pending: [], busy: false };
+  document.getElementById('hoFilesTitle').textContent = h.ItemName || h.ItemCode || 'Files';
+  document.getElementById('hoFilesSub').textContent = h.HandoverID + ' · ' + h.FromDept + ' \u2192 ' + h.ToDept + ' · ' + h.Status;
+  ['hoFilesError', 'hoFilesStatus', 'hoFilesAddStatus'].forEach(function (x) { document.getElementById(x).textContent = ''; });
+  document.getElementById('hoFilesRetryBtn').classList.add('hidden');
+  document.getElementById('hoFilesAddWrap').classList.toggle('hidden', !canAddHoFiles(h));
+  document.getElementById('hoFilesGrid').innerHTML = '<div class="attach-empty">Loading…</div>';
+  renderHoFilesPending();
+  document.getElementById('hoFilesModal').classList.remove('hidden');
+  await loadHoFiles();
+}
+
+function closeHoFiles() {
+  document.getElementById('hoFilesModal').classList.add('hidden');
+  if (hoFilesView && !hoFilesView.busy) releaseAttachItems(hoFilesView.pending);
+}
+
+async function loadHoFiles() {
+  const v = hoFilesView;
+  try {
+    const items = await api('getHandoverFiles', { handoverId: v.h.HandoverID }) || [];
+    if (hoFilesView !== v) return;
+    v.items = items;
+    renderHoFilesGrid();
+    noteHoCount(v.h.HandoverID, items.length);
+  } catch (err) {
+    if (hoFilesView === v) document.getElementById('hoFilesGrid').innerHTML = '<div class="attach-empty">' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function renderHoFilesGrid() {
+  const v = hoFilesView;
+  const grid = document.getElementById('hoFilesGrid');
+  if (!v.items.length) { grid.innerHTML = '<div class="attach-empty">No files on this handover yet.</div>'; return; }
+  grid.innerHTML = v.items.map(function (a) {
+    const face = a.mimeType === 'application/pdf'
+      ? '<span class="attach-tile-pdf">PDF</span>'
+      : (a.thumb ? '<img class="attach-tile-img" src="data:image/jpeg;base64,' + a.thumb + '" alt="">'
+                 : '<span class="attach-tile-pdf" style="background:var(--ink-soft)">IMG</span>');
+    return '<div class="attach-tile">' +
+      '<button type="button" class="attach-open" data-ho-file-open="' + escapeHtml(a.attachmentId) + '" aria-label="Open ' + escapeHtml(a.fileName) + '">' + face +
+      '<div class="attach-tile-cap"><div class="attach-name">' + escapeHtml(a.fileName) + '</div>' +
+      '<div class="attach-sub">' + escapeHtml(formatBytes(a.size) + ' · ' + (a.dept || a.uploadedBy || '')) + '</div>' +
+      (a.onStock ? '<div class="attach-sub">also on the Stock entry</div>' : '') + '</div></button>' +
+      (canRemoveHoFile(v.h, a) ? '<button type="button" class="attach-remove" data-ho-file-remove="' + escapeHtml(a.attachmentId) +
+        '" aria-label="Remove ' + escapeHtml(a.fileName) + '" title="Remove">\u2715</button>' : '') +
+      '</div>';
+  }).join('');
+}
+
+function renderHoFilesPending() {
+  const v = hoFilesView;
+  document.getElementById('hoFilesAddList').innerHTML = v ? v.pending.map(function (i) { return attachItemHtml(i, !v.busy); }).join('') : '';
+  const failed = v && v.pending.some(function (i) { return i.status === 'failed'; });
+  document.getElementById('hoFilesRetryBtn').classList.toggle('hidden', !failed || (v && v.busy));
+}
+
+async function runHoViewUploads() {
+  const v = hoFilesView;
+  if (!v || v.busy) return;
+  v.busy = true;
+  const status = document.getElementById('hoFilesAddStatus');
+  const todo = v.pending.filter(function (i) { return i.status !== 'invalid' && i.status !== 'done'; });
+  for (let n = 0; n < todo.length; n++) {
+    status.textContent = 'Uploading ' + (n + 1) + ' of ' + todo.length + '…';
+    todo[n].status = 'uploading';
+    renderHoFilesPending();
+    await uploadHoItem(v.h.HandoverID, todo[n]);
+    renderHoFilesPending();
+  }
+  v.busy = false;
+  const done = v.pending.filter(function (i) { return i.status === 'done'; });
+  releaseAttachItems(done);
+  v.pending = v.pending.filter(function (i) { return i.status !== 'done'; });
+  const failed = v.pending.filter(function (i) { return i.status === 'failed'; }).length;
+  status.textContent = failed ? failed + (failed === 1 ? ' file' : ' files') + ' didn\u2019t upload \u2014 tap Retry.' : '';
+  renderHoFilesPending();
+  if (done.length && hoFilesView === v) {
+    toast(done.length + (done.length === 1 ? ' file' : ' files') + ' added to ' + v.h.HandoverID);
+    await loadHoFiles();
+  }
+}
+
+// PDFs: a new tab where the browser can show them (a computer, an iPhone),
+// opened in the tap itself so it isn't blocked as a pop-up; elsewhere (most
+// Android phones) saved under their real name for the phone's PDF viewer.
+function saveBlob(f) {
+  const link = document.createElement('a');
+  link.href = f.url; link.download = f.fileName;
+  document.body.appendChild(link); link.click(); link.remove();
+}
+
+async function openHoFile(id) {
+  const a = hoFilesView && hoFilesView.items.filter(function (x) { return x.attachmentId === id; })[0];
+  if (!a) return;
+  const isPdf = a.mimeType === 'application/pdf';
+  const inlinePdf = navigator.pdfViewerEnabled === true;
+  const status = document.getElementById('hoFilesStatus');
+  let win = null;
+  if (isPdf && inlinePdf && !hoFileCache[id]) {
+    try {
+      win = window.open('', '_blank');
+      if (win) win.document.write('<p style="font-family:sans-serif;padding:24px">Opening ' + escapeHtml(a.fileName) + '…</p>');
+    } catch (e) { win = null; }
+  }
+  let f = hoFileCache[id];
+  if (!f) {
+    status.textContent = 'Opening ' + a.fileName + '…';
+    try {
+      const got = await api('getHandoverFile', { attachmentId: id });
+      const bin = atob(got.data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      f = hoFileCache[id] = { url: URL.createObjectURL(new Blob([bytes], { type: got.mimeType })), fileName: got.fileName, mimeType: got.mimeType };
+      status.textContent = '';
+    } catch (err) {
+      if (win) win.close();
+      status.textContent = '';
+      document.getElementById('hoFilesError').textContent = err.message;
+      return;
+    }
+  }
+  if (!isPdf) { showImage(f); return; }
+  if (!inlinePdf) { saveBlob(f); status.textContent = 'Saved ' + f.fileName + ' \u2014 open it from your downloads.'; return; }
+  if (win && !win.closed) { win.location.href = f.url; return; }
+  if (!window.open(f.url, '_blank')) saveBlob(f);
+}
+
+function showImage(f) {
+  document.getElementById('ivImg').src = f.url;
+  document.getElementById('ivName').textContent = f.fileName;
+  const dl = document.getElementById('ivDownload');
+  dl.href = f.url; dl.setAttribute('download', f.fileName);
+  document.getElementById('ivScroll').classList.remove('is-zoomed');
+  document.getElementById('imageViewer').classList.remove('hidden');
+}
+
+function closeImage() {
+  document.getElementById('imageViewer').classList.add('hidden');
+  document.getElementById('ivImg').removeAttribute('src');
+}
+
+async function removeHoFileUi(id) {
+  const v = hoFilesView;
+  const a = v && v.items.filter(function (x) { return x.attachmentId === id; })[0];
+  if (!a) return;
+  const note = a.onStock ? '\n\nIt stays on the Stock Management entry \u2014 remove it there too if it shouldn\u2019t be on record.' : '';
+  if (!confirm('Remove ' + a.fileName + ' from ' + v.h.HandoverID + '?\n\nIt stays on record and in Drive, but is no longer shown here.' + note)) return;
+  const why = prompt('Why is it being removed? (optional)', '');
+  if (why === null) return;
+  try {
+    await api('removeHandoverFile', { attachmentId: id, reason: why });
+    toast('Removed ' + a.fileName);
+    await loadHoFiles();
+  } catch (err) {
+    document.getElementById('hoFilesError').textContent = err.message;
+  }
+}
+
+function wireHoFiles() {
+  // ---- the Send and Ask forms ----
+  document.querySelectorAll('[data-files-pick]').forEach(function (b) {
+    b.addEventListener('click', function () { formEls(b.dataset.filesPick).input.click(); });
+  });
+  ['send', 'ask'].forEach(function (which) {
+    const el = formEls(which);
+    el.input.addEventListener('change', function (e) {
+      const added = addPickedFiles(formFiles[which], e.target.files, 0);
+      e.target.value = '';
+      renderFormFiles(which);
+      added.forEach(function (i) { i.ready.then(function () { renderFormFiles(which); }); });
+    });
+    el.list.addEventListener('click', function (e) {
+      const b = e.target.closest('[data-attach-drop]');
+      if (!b) return;
+      const idx = formFiles[which].findIndex(function (i) { return i.id === b.dataset.attachDrop; });
+      if (idx > -1) { releaseAttachItems([formFiles[which][idx]]); formFiles[which].splice(idx, 1); renderFormFiles(which); }
+    });
+    el.tray.querySelector('[data-tray-retry]').addEventListener('click', function () {
+      const tray = formTrays[which];
+      if (tray) { tray.items.forEach(function (i) { if (i.status === 'failed') i.status = 'ready'; }); runFormUploads(which); }
+    });
+    el.tray.querySelector('[data-tray-dismiss]').addEventListener('click', function () {
+      if (formTrays[which]) releaseAttachItems(formTrays[which].items);
+      formTrays[which] = null;
+      el.tray.querySelector('.attach-status').textContent = '';
+      renderFormFiles(which);
+    });
+  });
+
+  // ---- 📎 on any handover row. Caught on the way down, so the row's own
+  // buttons don't also fire. ----
+  document.addEventListener('click', function (e) {
+    const chip = e.target.closest && e.target.closest('[data-ho-files]');
+    if (!chip) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openHoFiles(chip.dataset.hoFiles);
+  }, true);
+
+  // ---- the viewer ----
+  document.getElementById('hoFilesCloseBtn').addEventListener('click', closeHoFiles);
+  document.getElementById('hoFilesModal').addEventListener('click', function (e) { if (e.target.id === 'hoFilesModal') closeHoFiles(); });
+  document.getElementById('hoFilesGrid').addEventListener('click', function (e) {
+    const rm = e.target.closest('[data-ho-file-remove]');
+    if (rm) { removeHoFileUi(rm.dataset.hoFileRemove); return; }
+    const open = e.target.closest('[data-ho-file-open]');
+    if (open) openHoFile(open.dataset.hoFileOpen);
+  });
+  document.getElementById('hoFilesAddBtn').addEventListener('click', function () { document.getElementById('hoFilesAddInput').click(); });
+  document.getElementById('hoFilesAddInput').addEventListener('change', function (e) {
+    const v = hoFilesView;
+    if (!v) return;
+    addPickedFiles(v.pending, e.target.files, v.items.length);
+    e.target.value = '';
+    renderHoFilesPending();
+    runHoViewUploads();
+  });
+  document.getElementById('hoFilesRetryBtn').addEventListener('click', function () {
+    (hoFilesView ? hoFilesView.pending : []).forEach(function (i) { if (i.status === 'failed') i.status = 'ready'; });
+    runHoViewUploads();
+  });
+  document.getElementById('hoFilesAddList').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-attach-drop]');
+    const v = hoFilesView;
+    if (!b || !v || v.busy) return;
+    const idx = v.pending.findIndex(function (i) { return i.id === b.dataset.attachDrop; });
+    if (idx > -1) { releaseAttachItems([v.pending[idx]]); v.pending.splice(idx, 1); renderHoFilesPending(); }
+  });
+
+  // ---- the photo viewer ----
+  document.getElementById('ivClose').addEventListener('click', closeImage);
+  document.getElementById('ivImg').addEventListener('click', function () { document.getElementById('ivScroll').classList.toggle('is-zoomed'); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('imageViewer').classList.contains('hidden')) { closeImage(); e.stopPropagation(); }
+    else if (!document.getElementById('hoFilesModal').classList.contains('hidden')) closeHoFiles();
+  }, true);
+}
+
+/* =========================================================================
    FORMS
    ========================================================================= */
 
@@ -2068,6 +2619,7 @@ function wireForms() {
   // Each form keeps its entry between attempts, so a retry after a lost
   // reply carries the same duplicate-safe ID rather than making a new one.
   const forms = {};
+  wireHoFiles();
 
   document.getElementById('orderForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2123,7 +2675,7 @@ function wireForms() {
     const result = await submitWrite({ action: 'sendHandover', form: form, errorId: 'hoSendError', buttonId: 'hoSendBtn',
       label: 'Handover to ' + (f ? f.ToDept : to),
       success: r => 'Sent to ' + (f ? f.ToDept : to) + (r && r.handoverId ? ' \u2014 ' + r.handoverId : '') });
-    if (result) resetSendForm();
+    if (result) { startFormUploads('send', result.handoverId); resetSendForm(); }
   });
 
   document.getElementById('hoAskForm').addEventListener('submit', async (e) => {
@@ -2133,11 +2685,12 @@ function wireForms() {
     const code = resolveCode(document.getElementById('hoAskItem').value, items);
     if (!code) return showFormError('hoAskError', 'Pick an item from the list.');
     const from = document.getElementById('hoAskFrom').value;
-    await submitWrite({ action: 'requestHandover', errorId: 'hoAskError', buttonId: 'hoAskBtn', label: 'Request to ' + from,
+    const asked = await submitWrite({ action: 'requestHandover', errorId: 'hoAskError', buttonId: 'hoAskBtn', label: 'Request to ' + from,
       form: { fromDept: from, toDept: state.hoDept, itemCode: code, qty: Number(document.getElementById('hoAskQty').value),
               remarks: document.getElementById('hoAskRemarks').value.trim() },
       success: r => 'Asked ' + from + (r && r.HandoverID ? ' \u2014 ' + r.HandoverID : ''),
       reset: () => document.getElementById('hoAskForm').reset() });
+    if (asked) startFormUploads('ask', asked.HandoverID);
   });
 
   document.getElementById('hoWipForm').addEventListener('submit', async (e) => {
@@ -2821,5 +3374,35 @@ if ('serviceWorker' in navigator) {
   else window.addEventListener('load', registerSw, { once: true });
 }
 </script>
+<div id="hoFilesModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <div class="modal-drag-handle" aria-hidden="true"></div>
+    <div class="modal-head">
+      <div><div class="modal-eyebrow" id="hoFilesEyebrow">HANDOVER · FILES</div><h3 id="hoFilesTitle">Files</h3><div class="mono muted" id="hoFilesSub"></div></div>
+      <button class="icon-btn" id="hoFilesCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="attach-grid" id="hoFilesGrid"></div>
+    <div class="attach-status" id="hoFilesStatus" aria-live="polite"></div>
+    <div id="hoFilesAddWrap" class="hidden">
+      <div class="attach-bar">
+        <button type="button" class="btn-ghost btn-attach" id="hoFilesAddBtn">📎 Add photos or PDFs</button>
+        <button type="button" class="btn-ghost btn-attach hidden" id="hoFilesRetryBtn">Retry</button>
+      </div>
+      <input type="file" id="hoFilesAddInput" accept="image/*,application/pdf" multiple hidden>
+      <div class="attach-list" id="hoFilesAddList"></div>
+      <div class="attach-status" id="hoFilesAddStatus" aria-live="polite"></div>
+    </div>
+    <div class="modal-error" id="hoFilesError"></div>
+  </div>
+</div>
+
+<div id="imageViewer" class="image-viewer hidden" role="dialog" aria-label="Photo">
+  <div class="iv-bar">
+    <span class="iv-name" id="ivName"></span>
+    <a class="iv-btn" id="ivDownload" download>Download</a>
+    <button type="button" class="iv-btn" id="ivClose" aria-label="Close">✕</button>
+  </div>
+  <div class="iv-scroll" id="ivScroll"><img id="ivImg" alt=""></div>
+</div>
 </body>
 </html>
