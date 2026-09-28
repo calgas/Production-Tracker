@@ -1,4 +1,4 @@
-# CALGAS Capacitors — Production Tracker 3.0
+# CALGAS Capacitors — Production Tracker 3.1
 
 Material moving through the factory, one department to the next, and back when it has to go back.
 
@@ -59,6 +59,19 @@ What each department can record is read off the route:
 - **Assembly** uses them up, since it receives elements and sends finished goods.
 - **Any department holding elements** can scrap them.
 
+## Files on handovers (3.1)
+
+Any handover can carry photos and PDFs — Purchase's invoice with the film, a photo of rejected elements, a drawing with a request. Never required, up to 10 per handover.
+
+- **On the Send and Ask forms**, *Add photos or PDFs* offers the camera, photos or files on a phone. Photos are shrunk on the phone first (about 2000 px on the long side), PDFs go as they are (up to 10 MB). The handover is saved first; its files follow in a tray under the form, and if one fails on a weak signal, **Retry files** sends just that one.
+- **On every handover row**, **📎** shows how many files it has; tap it to see them, or **📎+** to add the first. Photos open full screen; PDFs open in a new tab on a computer or iPhone and are saved under their real name on an Android phone.
+- **Who adds:** either department on the handover, or a Manager or Admin — when sending, asking, receiving, or later. Not on a handover that was rejected, declined or cancelled.
+- **Who removes:** until it's received, the department that added a file; after, only a Manager or Admin. A removed file is kept in Drive and on record.
+
+**Onto Stock Management.** When a raw-material or finished-goods handover is received, its files are recorded on the Stock Management entry the receipt posts — the same files, not copies — so Purchase's invoice is on the Receipt in Stock Management's history, marked *from HO-…*. Files added to a handover after its receipt follow it there. Removing a file from a received handover leaves it on the Stock Management entry; taking it off there is a Stock Management correction. Element handovers post nothing to Stock Management, so their files stay on the handover.
+
+**Where the files are:** Google Drive, in the same **CALGAS Stock Attachments** folder Stock Management uses, under **Production Tracker**, a folder per month, each named after its handover. Never shared by link. The **Attachments** tab here records which file belongs to which handover and where it went.
+
 ## The route is a sheet
 
 The **Workflow** tab has one row per link, with three columns: **FromDept**, **ToDept** and **Kind**. Kind is one of:
@@ -99,6 +112,8 @@ Requests for Metallization or Slitting material are listed in the log, not moved
 2. **Production Tracker backend.** Deploy this Code.gs (3.0.0) as a new version. Then run `ADMIN_setupSheet()`, which creates Workflow, Handovers, WIP_Entries and AuditLog, and fills the route. Then run `ADMIN_migrateToHandovers()`.
 3. **Production Tracker frontend.** Push index.html and sw.js. Phones get an update bar.
 4. Everyone signs in to Production Tracker again, so their session carries the new grants.
+
+**Upgrading from 3.0 to 3.1 (files):** deploy Stock Management 3.14.0 first, then this Code.gs as a new version, and run **`ADMIN_setupAttachments()`** once from the editor. This app has never used Google Drive before, so Google will ask you to approve Drive access — approve it. The run makes the Attachments tab and folders and logs where files will go. Then push index.html and sw.js. If a receipt's files ever didn't reach Stock Management, running it again finishes them.
 
 ## Every change is logged
 
