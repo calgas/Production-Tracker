@@ -24,7 +24,7 @@
 // of being stuck on an old cached one. Keep this in step with APP_VERSION
 // in index.html.
 const CACHE_PREFIX = 'production-tracker-shell-';
-const CACHE_VERSION = CACHE_PREFIX + 'v3';
+const CACHE_VERSION = CACHE_PREFIX + 'v4';
 const APP_SHELL = [
   './',
   './index.html',
