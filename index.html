@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="app-version" content="2.0.0">
+<meta name="app-version" content="3.0.0">
 <meta name="theme-color" content="#f3f0ea" id="metaThemeColor">
 <meta name="description" content="Order to dispatch production tracking for CALGAS Capacitors.">
 <title>CALGAS · Production Tracker</title>
@@ -1059,9 +1059,10 @@
   <button type="button" class="update-bar-dismiss" id="updateDismissBtn" aria-label="Later">Later</button>
 </div>
 
-<!-- Sign-in posts to STOCK MANAGEMENT, not to this app. Production Tracker
-     issues no sessions of its own; it borrows the one Stock Management
-     already keeps in localStorage under 'stock_session'. -->
+<!-- Sign-in posts to STOCK MANAGEMENT, which issues every app's sessions,
+     but the session is Production Tracker's own (app "pt"), kept in
+     localStorage under 'pt_session' — separate from Stock Management's and
+     ELE Tracker's, so each can be signed in and out on its own. -->
 <div id="loginScreen" class="center-screen hidden">
   <div class="card auth-card">
     <div class="auth-brand">
@@ -1104,13 +1105,9 @@
       <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M2 7L8 2L14 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 8v5.5h9V8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="label">Overview</span>
     </a>
-    <a href="#" class="nav-link" data-page="requests">
-      <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><rect x="3" y="2.5" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span class="label">Requests</span>
-    </a>
-    <a href="#" class="nav-link" data-page="production">
-      <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M2.5 13.5V7l4 2.5V7l4 2.5V3l3 1.5v9z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      <span class="label">Production</span>
+    <a href="#" class="nav-link" data-page="handovers">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M2.5 5.5h9m0 0L9 3m2.5 2.5L9 8M13.5 10.5h-9m0 0L7 8m-2.5 2.5L7 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="label">Handovers</span>
     </a>
     <a href="#" class="nav-link" data-page="trace">
       <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -1148,7 +1145,7 @@
 
     <!-- ===================== OVERVIEW ===================== -->
     <section class="page" id="page-overview">
-      <div class="page-head"><h2>Overview</h2><p>Orders, requests and production at a glance.</p></div>
+      <div class="page-head"><h2>Overview</h2><p>Orders and handovers at a glance.</p></div>
 
       <div class="stat-grid">
         <div class="stat-card">
@@ -1162,19 +1159,19 @@
           <div class="stat-sub">Orders entered today</div>
         </div>
         <div class="stat-card">
-          <div class="label-row"><span class="label">Open requests</span></div>
+          <div class="label-row"><span class="label">Waiting for you</span></div>
           <div class="value" id="statOpenReq">—</div>
           <div class="stat-sub" id="statOpenReqSub">&nbsp;</div>
         </div>
         <div class="stat-card">
-          <div class="label-row"><span class="label">Elements in process</span></div>
+          <div class="label-row"><span class="label">Elements on hand</span></div>
           <div class="value" id="statElements">—</div>
           <div class="stat-sub" id="statElementsSub">&nbsp;</div>
         </div>
       </div>
 
       <div class="panel panel-form hidden" id="placeOrderPanel">
-        <div class="panel-head"><h3>Place an order</h3><span class="freshness-label">Marketing, Dispatch and Admin</span></div>
+        <div class="panel-head"><h3>Place an order</h3><span class="freshness-label">For anyone an Admin has allowed</span></div>
         <form id="orderForm">
           <div class="form-grid">
             <div class="field"><label for="orderCustomer">Customer</label><input type="text" id="orderCustomer" required></div>
@@ -1211,158 +1208,92 @@
       </div>
     </section>
 
-    <!-- ===================== REQUESTS ===================== -->
-    <section class="page hidden" id="page-requests">
-      <div class="page-head"><h2>Requests</h2><p>Material from Store, and material made upstream.</p></div>
+    <!-- ===================== HANDOVERS ===================== -->
+    <section class="page hidden" id="page-handovers">
+      <div class="page-head">
+        <h2>Handovers</h2>
+        <p>Material moving between neighbouring departments, forward or back. Nothing moves until the receiving side confirms.</p>
+      </div>
 
-      <div class="panel panel-form hidden" id="requestRmPanel">
-        <div class="panel-head"><h3>Request RM from Store</h3></div>
-        <form id="rmRequestForm">
+      <div class="panel panel-form hidden" id="hoDeptPanel">
+        <form onsubmit="return false"><div class="form-grid">
+          <div class="field"><label for="hoDept">Department</label><select id="hoDept"></select></div>
+        </div></form>
+      </div>
+      <div class="panel hidden" id="hoNotInRoute"><div class="empty-state" id="hoNotInRouteText"></div></div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>Waiting for <span id="hoDeptName"></span></h3><span class="freshness-label" id="hoFresh"></span></div>
+        <div class="table-scroll">
+          <table><thead><tr><th>Date</th><th>Handover</th><th>From</th><th>Item</th><th class="num">Qty</th><th>Status</th><th></th></tr></thead>
+          <tbody id="hoWaitingBody"></tbody></table>
+        </div>
+      </div>
+
+      <div class="panel panel-form hidden" id="hoSendPanel">
+        <div class="panel-head"><h3 id="hoSendTitle">Send or return</h3><span class="freshness-label">It moves when the other side confirms</span></div>
+        <form id="hoSendForm">
           <div class="form-grid">
-            <div class="field">
-              <label for="rmItem">RM item</label>
-              <input type="text" id="rmItem" list="rmOptions" placeholder="Search by code or name…" required>
-              <datalist id="rmOptions"></datalist>
-            </div>
-            <div class="field"><label for="rmQty">Quantity</label><input type="number" id="rmQty" step="any" min="0" required></div>
-            <div class="field"><label for="rmOrderRef">Order reference (optional)</label><input type="text" id="rmOrderRef"></div>
+            <div class="field"><label for="hoSendTo">To</label><select id="hoSendTo" required></select></div>
+            <div class="field"><label for="hoSendItem">Item</label><input type="text" id="hoSendItem" list="hoSendItems" placeholder="Search by code or name…" required><datalist id="hoSendItems"></datalist></div>
+            <div class="field"><label for="hoSendQty">Quantity <span class="muted" id="hoSendUnit"></span></label><input type="number" id="hoSendQty" step="any" min="0" required></div>
+            <div class="field hidden" id="hoSendOrderField"><label for="hoSendOrder">Order (optional)</label><input type="text" id="hoSendOrder" list="hoOrderOptions"><datalist id="hoOrderOptions"></datalist></div>
+            <div class="field"><label for="hoSendRef">Reference (optional)</label><input type="text" id="hoSendRef"></div>
+            <div class="field"><label for="hoSendRemarks">Remarks (optional)</label><input type="text" id="hoSendRemarks"></div>
           </div>
-          <div class="form-error hidden" id="rmRequestError"></div>
-          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="rmRequestBtn">Send request</button></div>
+          <div class="hint" id="hoSendHint"></div>
+          <div class="form-error hidden" id="hoSendError"></div>
+          <div class="modal-actions-right">
+            <button type="button" class="btn-ghost hidden" id="hoSendCancelFill">Clear</button>
+            <button type="submit" class="btn-primary" id="hoSendBtn">Send</button>
+          </div>
         </form>
       </div>
 
-      <div class="panel panel-form hidden" id="requestInternalPanel">
-        <div class="panel-head"><h3>Request internal material</h3><span class="freshness-label" id="internalTargetHint"></span></div>
-        <form id="internalRequestForm">
+      <div class="panel panel-form hidden" id="hoAskPanel">
+        <div class="panel-head"><h3>Ask a neighbour</h3><span class="freshness-label">They send it when they can</span></div>
+        <form id="hoAskForm">
           <div class="form-grid">
-            <div class="field"><label for="intToDept">From department</label><select id="intToDept" required></select></div>
-            <div class="field">
-              <label for="intSpec">Spec</label>
-              <input type="text" id="intSpec" list="specOptions" placeholder="Search specs…" required>
-              <datalist id="specOptions"></datalist>
-            </div>
-            <div class="field"><label for="intQty">Quantity</label><input type="number" id="intQty" step="any" min="0" required></div>
-            <div class="field"><label for="intOrderRef">Order reference (optional)</label><input type="text" id="intOrderRef"></div>
+            <div class="field"><label for="hoAskFrom">From</label><select id="hoAskFrom" required></select></div>
+            <div class="field"><label for="hoAskItem">Item</label><input type="text" id="hoAskItem" list="hoAskItems" placeholder="Search by code or name…" required><datalist id="hoAskItems"></datalist></div>
+            <div class="field"><label for="hoAskQty">Quantity <span class="muted" id="hoAskUnit"></span></label><input type="number" id="hoAskQty" step="any" min="0" required></div>
+            <div class="field"><label for="hoAskRemarks">Remarks (optional)</label><input type="text" id="hoAskRemarks"></div>
           </div>
-          <div class="form-error hidden" id="internalRequestError"></div>
-          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="internalRequestBtn">Send request</button></div>
+          <div class="form-error hidden" id="hoAskError"></div>
+          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="hoAskBtn">Ask</button></div>
+        </form>
+      </div>
+
+      <div class="panel panel-form hidden" id="hoWipPanel">
+        <div class="panel-head"><h3>Elements on hand</h3><span class="freshness-label">Received and made, less sent, scrapped and used</span></div>
+        <div class="table-scroll">
+          <table><thead><tr><th>Spec</th><th class="num">On hand</th></tr></thead><tbody id="hoWipBody"></tbody></table>
+        </div>
+        <form id="hoWipForm" class="hidden">
+          <div class="form-grid">
+            <div class="field"><label for="hoWipType">What happened</label><select id="hoWipType"></select></div>
+            <div class="field"><label for="hoWipSpec">Spec</label><input type="text" id="hoWipSpec" list="hoWipSpecs" placeholder="Pick or type a spec…" required><datalist id="hoWipSpecs"></datalist></div>
+            <div class="field"><label for="hoWipQty">Quantity</label><input type="number" id="hoWipQty" step="any" min="0" required></div>
+            <div class="field"><label for="hoWipRemarks">Remarks (optional)</label><input type="text" id="hoWipRemarks"></div>
+          </div>
+          <div class="form-error hidden" id="hoWipError"></div>
+          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="hoWipBtn">Record</button></div>
         </form>
       </div>
 
       <div class="panel">
-        <div class="panel-head"><h3>RM requests</h3><span class="freshness-label" id="rmReqFresh"></span></div>
+        <div class="panel-head"><h3>Sent and asked, not yet settled</h3></div>
         <div class="table-scroll">
-          <table>
-            <thead><tr><th>Date</th><th>Request</th><th>Item</th><th class="num">Qty</th><th>From</th><th>Status</th><th>By</th><th>Action</th></tr></thead>
-            <tbody id="rmRequestsBody"></tbody>
-          </table>
+          <table><thead><tr><th>Date</th><th>Handover</th><th>With</th><th>Item</th><th class="num">Qty</th><th>Status</th><th></th></tr></thead>
+          <tbody id="hoOutBody"></tbody></table>
         </div>
       </div>
 
       <div class="panel">
-        <div class="panel-head"><h3>Production requests</h3><span class="freshness-label" id="prodReqFresh"></span></div>
+        <div class="panel-head"><h3>Recent</h3></div>
         <div class="table-scroll">
-          <table>
-            <thead><tr><th>Date</th><th>Request</th><th>Spec</th><th class="num">Qty</th><th>From</th><th>To</th><th>Status</th><th>Code</th><th>Action</th></tr></thead>
-            <tbody id="prodRequestsBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===================== PRODUCTION ===================== -->
-    <section class="page hidden" id="page-production">
-      <div class="page-head"><h2>Production</h2><p>Metallization through Short Clearance.</p></div>
-
-      <div class="panel panel-form hidden" id="createMppPanel">
-        <div class="panel-head"><h3>Create MPP code</h3><span class="freshness-label">Metallization</span></div>
-        <form id="createMppForm">
-          <div class="form-grid">
-            <div class="field"><label for="mppReq">Approved request</label><select id="mppReq" required></select></div>
-            <div class="field"><label for="mppBatchNo">Batch number</label><input type="text" id="mppBatchNo" required></div>
-          </div>
-          <div class="form-error hidden" id="createMppError"></div>
-          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="createMppBtn">Create code</button></div>
-        </form>
-      </div>
-
-      <div class="panel panel-form hidden" id="executeBomPanel">
-        <div class="panel-head"><h3>Slit and execute MPP BOM</h3><span class="freshness-label">Slitting · posts real stock movements</span></div>
-        <form id="executeBomForm">
-          <div class="form-grid">
-            <div class="field"><label for="bomBatch">MPP batch</label><select id="bomBatch" required></select></div>
-            <div class="field"><label for="bomGrade">Grade</label><input type="text" id="bomGrade"></div>
-            <div class="field"><label for="bomMachine">Slit machine</label><input type="text" id="bomMachine"></div>
-            <div class="field"><label for="bomWeight">Weight</label><input type="number" id="bomWeight" step="any"></div>
-            <div class="field"><label for="bomReels">Reel count</label><input type="number" id="bomReels" step="1"></div>
-            <div class="field"><label for="bomReq">Winding request to close (optional)</label><select id="bomReq"></select></div>
-          </div>
-          <div class="form-error hidden" id="executeBomError"></div>
-          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="executeBomBtn">Execute BOM</button></div>
-        </form>
-      </div>
-
-      <div class="panel panel-form hidden" id="createElementPanel">
-        <div class="panel-head"><h3>Create Element</h3><span class="freshness-label">Winding</span></div>
-        <form id="createElementForm">
-          <div class="form-grid">
-            <div class="field"><label for="elBatch">Slit MPP batch</label><select id="elBatch" required></select></div>
-            <div class="field"><label for="elMachine">Wind machine</label><input type="text" id="elMachine"></div>
-            <div class="field"><label for="elCustomer">Customer</label><input type="text" id="elCustomer"></div>
-            <div class="field"><label for="elDrawing">Drawing reference</label><input type="text" id="elDrawing"></div>
-            <div class="field"><label for="elNotes">Notes</label><input type="text" id="elNotes"></div>
-          </div>
-          <div class="form-error hidden" id="createElementError"></div>
-          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="createElementBtn">Create Element</button></div>
-        </form>
-      </div>
-
-      <div class="panel panel-form hidden" id="sprayPanel">
-        <div class="panel-head"><h3>Spray</h3><span class="freshness-label">Spray</span></div>
-        <form id="sprayForm">
-          <div class="form-grid">
-            <div class="field"><label for="sprayElement">Element</label><select id="sprayElement" required></select></div>
-            <div class="field"><label for="sprayNotes">Notes</label><input type="text" id="sprayNotes"></div>
-          </div>
-          <div class="form-error hidden" id="sprayError"></div>
-          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="sprayBtn">Mark sprayed</button></div>
-        </form>
-      </div>
-
-      <div class="panel panel-form hidden" id="scPanel">
-        <div class="panel-head"><h3>Short Clearance</h3><span class="freshness-label">A pass executes the ELE BOM · a fail consumes nothing</span></div>
-        <form id="scForm">
-          <div class="form-grid">
-            <div class="field"><label for="scElement">Element</label><select id="scElement" required></select></div>
-            <div class="field">
-              <label for="scResult">Test result</label>
-              <select id="scResult" required><option value="Pass">Pass</option><option value="Fail">Fail</option></select>
-            </div>
-            <div class="field"><label for="scNotes">Notes</label><input type="text" id="scNotes"></div>
-          </div>
-          <div class="form-error hidden" id="scError"></div>
-          <div class="modal-actions-right"><button type="submit" class="btn-primary" id="scBtn">Record result</button></div>
-        </form>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head"><h3>MPP batches</h3><span class="freshness-label" id="batchFresh"></span></div>
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Created</th><th>Code</th><th>Batch</th><th>Spec</th><th class="num">Qty</th><th>Grade</th><th>Status</th><th>Operator</th></tr></thead>
-            <tbody id="batchesBody"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head"><h3>Elements</h3><span class="freshness-label" id="elementFresh"></span></div>
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Wound</th><th>Element</th><th>From batch</th><th>Spec</th><th>Customer</th><th>Stage</th><th>Result</th><th>Status</th></tr></thead>
-            <tbody id="elementsBody"></tbody>
-          </table>
+          <table><thead><tr><th>Date</th><th>Handover</th><th>From</th><th>To</th><th>Item</th><th class="num">Qty</th><th>Status</th></tr></thead>
+          <tbody id="hoHistoryBody"></tbody></table>
         </div>
       </div>
     </section>
@@ -1393,18 +1324,23 @@
 
    Talks to two backends on purpose:
 
-   - STOCK_API_URL   sign-in only. Production Tracker issues no sessions of
-                     its own; it borrows Stock Management's, kept in
-                     localStorage under 'stock_session' so signing in to
-                     either app signs you in to both.
+   - STOCK_API_URL   sign-in and sign-out. Stock Management issues the
+                     session, but it is Production Tracker's own (app "pt"),
+                     kept under 'pt_session', so signing in or out here
+                     leaves the other apps as they are.
    - PT_API_URL      everything else.
    ========================================================================= */
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '3.0.0';
 const PT_API_URL = 'https://script.google.com/macros/s/AKfycbx_STLX2W1VDwOsxv3UpdpbPitg2ICXHXtbItWEvesmoQsuBdKO9Eg6KHwSoIZlPeO0CA/exec';
 const STOCK_API_URL = 'https://script.google.com/macros/s/AKfycbyxTvERmZY63TC9Pz4tMXb9x3mbT9hOe0YDuq2dNr5D5tkku2kYffFtmEzILuP1G9DrKA/exec';
 
-const SESSION_KEY = 'stock_session';
+// Production Tracker's own sign-in. All three apps live on calgas.github.io
+// and share one browser storage, so sharing Stock Management's key meant
+// signing in or out of any of them did it to all of them. The backend keeps
+// a session per app too, so each app can be open alongside the others.
+const SESSION_KEY = 'pt_session';
+const THEME_KEY = 'pt_theme';
 const PENDING_KEY = 'pt_pending_write';
 const LOGO_ICON = 'https://calgas.github.io/Stock-Management/logo/icon-192.png';
 
@@ -1421,10 +1357,8 @@ const PENDING_RECHECK_MS = 8000;
 // one carrying a clientTxnId may be resent, because the backend
 // recognises the ID and refuses to do the work twice.
 const MUTATING_ACTIONS = {
-  placeOrder: true, requestRM: true, requestInternal: true,
-  approveRequest: true, issueRM: true, receiveRequest: true,
-  createMPPCode: true, executeMPPBOM: true, createElement: true,
-  updateElementStage: true, executeELEBOM: true
+  placeOrder: true, requestHandover: true, sendHandover: true, receiveHandover: true,
+  rejectHandover: true, declineHandover: true, cancelHandover: true, recordWIP: true
 };
 
 const state = {
@@ -1446,14 +1380,50 @@ async function api(action, params, apiUrl) {
   _inFlight++;
   updateConnBadge();
   try {
-    return await _request(apiUrl || PT_API_URL, action, body, MUTATING_ACTIONS[action] ? 1 : 2);
+    return await _request(apiUrl || PT_API_URL, action, body, 0);
   } finally {
     _inFlight--;
     updateConnBadge();
   }
 }
 
-async function _request(url, action, body, retries) {
+// Writes that are safe to send again when a reply is lost, because a second
+// copy can't do the work twice. Filled in as the handover actions arrive.
+const REPEATABLE_WRITES = {
+  // Each finds its work already done on a second copy and says so.
+  receiveHandover: true, rejectHandover: true, declineHandover: true, cancelHandover: true
+};
+
+// Waits before each retry when Google's reply isn't the app's own. Its
+// hiccups tend to pass within seconds, so a few spaced tries ride through
+// most of them.
+const ODD_REPLY_BACKOFF_MS = [1500, 3000, 6000];
+
+function isSessionRejection(message) {
+  return /invalid or expired session|invalid session|session expired|missing session|another device/i.test(message || '');
+}
+
+// When Google's reply isn't the app's JSON, what it actually was is kept —
+// the last ten — so the cause can be seen rather than guessed at:
+// copy(localStorage.pt_api_diag) in the browser console.
+function recordOddReply(action, res, text, kind) {
+  const entry = {
+    at: new Date().toISOString(), action: action, kind: kind,
+    status: res ? res.status : null, url: res ? res.url : null, redirected: res ? res.redirected : null,
+    type: res ? res.headers.get('content-type') : null,
+    body: String(text || '').replace(/\s+/g, ' ').slice(0, 300)
+  };
+  try {
+    const list = JSON.parse(localStorage.getItem('pt_api_diag') || '[]');
+    list.push(entry);
+    localStorage.setItem('pt_api_diag', JSON.stringify(list.slice(-10)));
+  } catch (e) {}
+  if (window.console && console.warn) console.warn('[CALGAS] Unexpected reply from Google', entry);
+}
+
+async function _request(url, action, body, attempt) {
+  attempt = attempt || 0;
+  const isWrite = !!MUTATING_ACTIONS[action];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
@@ -1465,38 +1435,63 @@ async function _request(url, action, body, retries) {
       body: JSON.stringify(body),
       signal: controller.signal
     });
-
+    const text = await res.text();
     let json;
     try {
-      json = await res.json();
+      json = JSON.parse(text);
     } catch (parseErr) {
-      // Apps Script answered with something that isn't JSON — usually an
-      // HTML sign-in or error page. The request may still have run, so
-      // this is an unknown outcome, not a failure.
-      const unreadable = new Error('The server\u2019s reply could not be read. It may still have gone through.');
+      recordOddReply(action, res, text, 'unreadable');
+      // Google's own sign-in page: the deployment isn't open to everyone.
+      // Retrying can't fix a setting, so it's said plainly instead.
+      if (/accounts\.google\.com|ServiceLogin/i.test((res.url || '') + ' ' + text.slice(0, 2000))) {
+        throw new Error('Google asked for a sign-in, which means the backend deployment\u2019s \u201cWho has access\u201d ' +
+                        'isn\u2019t set to Anyone. An Admin needs to change it under Deploy \u2192 Manage deployments.');
+      }
+      const unreadable = new Error('unreadable');
+      unreadable.oddReply = true;
       unreadable.indeterminate = true;
       throw unreadable;
     }
-
     if (!json.success) {
       const failed = new Error(json.error || 'Request failed');
-      // doGet's reply. A POST bounced through a redirect arrives as a GET,
-      // which says nothing about whether the original POST ran.
-      if (/POST requests only/i.test(json.error || '')) failed.indeterminate = true;
+      // doGet's reply: the POST reached Google as a GET, bounced through a
+      // redirect. It says nothing about whether the original POST ran.
+      if (/POST requests only/i.test(json.error || '')) {
+        recordOddReply(action, res, text, 'bounced');
+        failed.oddReply = true;
+        failed.indeterminate = true;
+      }
+      if (isSessionRejection(json.error)) failed.sessionRejected = true;
       throw failed;
     }
     return json.data;
   } catch (err) {
-    if (err.name === 'AbortError') {
-      err = new Error('Request timed out — check your connection and try again.');
-      err.indeterminate = true;
-    }
-    if (err.message && err.message.indexOf('fetch') > -1) err.indeterminate = true;
+    const timedOut = err.name === 'AbortError';
+    const transport = timedOut || (err.message && err.message.indexOf('fetch') > -1);
+    if (transport) err.indeterminate = true;
+    const safeToRepeat = !isWrite || body.clientTxnId || REPEATABLE_WRITES[action];
 
-    const safeToRetry = !MUTATING_ACTIONS[action] || body.clientTxnId;
-    if (retries > 0 && err.indeterminate && safeToRetry) {
+    if (safeToRepeat && err.oddReply && attempt < ODD_REPLY_BACKOFF_MS.length) {
+      await new Promise(r => setTimeout(r, ODD_REPLY_BACKOFF_MS[attempt]));
+      return _request(url, action, body, attempt + 1);
+    }
+    if (safeToRepeat && transport && attempt < 1) {
       await new Promise(r => setTimeout(r, 700));
-      return _request(url, action, body, retries - 1);
+      return _request(url, action, body, attempt + 1);
+    }
+    if (err.sessionRejected && state.session && action !== 'login' && action !== 'logout') endSessionHere(err.message);
+    if (timedOut) {
+      const t = new Error('Request timed out — check your connection and try again.');
+      t.indeterminate = true;
+      throw t;
+    }
+    if (err.oddReply) {
+      const odd = new Error(isWrite
+        ? 'Google sent back an unexpected reply, so it isn\u2019t certain this went through. Check before trying again.'
+        : 'Google sent back an unexpected reply, even after a few tries. It usually clears within a minute \u2014 try again shortly.');
+      odd.indeterminate = true;
+      odd.oddReply = true;
+      throw odd;
     }
     throw err;
   } finally {
@@ -1621,6 +1616,7 @@ async function handleLogin(e) {
   btn.disabled = true; btn.textContent = 'Signing in…';
   try {
     const data = await api('login', {
+      app: 'pt',
       username: document.getElementById('loginUser').value.trim(),
       password: document.getElementById('loginPass').value
     }, STOCK_API_URL);
@@ -1636,7 +1632,46 @@ async function handleLogin(e) {
   }
 }
 
+// Called when the backend refuses this page's session mid-use — most often
+// because the account signed in to Production Tracker on another device.
+// Rather than leaving every button to fail, the page goes to sign-in and
+// says why.
+let sessionEnding = false;
+function endSessionHere(message) {
+  if (sessionEnding) return;
+  sessionEnding = true;
+  clearSession();
+  state.session = null; state.me = null;
+  document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
+  document.getElementById('appShell').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = /another device/i.test(message || '')
+    ? 'You were signed out here because this account signed in to Production Tracker on another device.'
+    : 'Your session has ended \u2014 please sign in again.';
+  errEl.classList.remove('hidden');
+  setTimeout(() => { sessionEnding = false; }, 1000);
+}
+
+// Quantities are never negative here. The minus key is ignored, a pasted
+// "-12" becomes 12, and the e/E/+ of scientific notation are never
+// quantities. Delegated, so boxes added later are covered too.
+document.addEventListener('keydown', function (e) {
+  const el = e.target;
+  if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+  if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+') e.preventDefault();
+}, true);
+document.addEventListener('input', function (e) {
+  const el = e.target;
+  if (!el || el.tagName !== 'INPUT' || el.type !== 'number' || el.value === '') return;
+  const n = Number(el.value);
+  if (!isNaN(n) && n < 0) el.value = String(Math.abs(n));
+}, true);
+
 function signOut() {
+  // Ends the session on the server too, so its row doesn't linger in the
+  // Sessions tab until it expires. Signing out never waits on that.
+  if (state.session) { try { api('logout', {}, STOCK_API_URL).catch(function () {}); } catch (e) {} }
   clearSession();
   state.session = null; state.me = null;
   document.getElementById('retryBtn').classList.add('hidden');
@@ -1649,17 +1684,18 @@ function signOut() {
    LOADING AND RENDERING
    ========================================================================= */
 
+/* =========================================================================
+   DATA
+   ========================================================================= */
+
 async function refreshAll(opts) {
   opts = opts || {};
-  const jobs = [
-    api('getOrders').then(r => { state.orders = r || []; }),
-    api('getRMRequests').then(r => { state.rmRequests = r || []; }),
-    api('getProductionRequests').then(r => { state.prodRequests = r || []; }),
-    api('getMPPBatches').then(r => { state.batches = r || []; }),
-    api('getElements').then(r => { state.elements = r || []; })
-  ];
   try {
-    await Promise.all(jobs);
+    const got = await Promise.all([api('getOrders'), state.workflow ? state.workflow : api('getWorkflow')]);
+    state.orders = got[0] || [];
+    state.workflow = got[1];
+    if (!state.hoDept) state.hoDept = defaultHoDept();
+    state.ho = state.hoDept ? await api('getHandovers', { dept: state.hoDept }) : null;
     state.loadedAt.all = new Date();
   } catch (err) {
     if (!opts.quiet) toast(err.message, true);
@@ -1668,31 +1704,59 @@ async function refreshAll(opts) {
 }
 
 async function loadCatalogs() {
-  const jobs = [];
-  if (perm('placeOrder')) jobs.push(api('getFGCatalog').then(r => { state.fgCatalog = r || []; }));
-  if (perm('requestRM')) jobs.push(api('getRMCatalog').then(r => { state.rmCatalog = r || []; }));
-  if (perm('requestInternal')) jobs.push(api('getMPPBOMSpecs').then(r => { state.specs = r || []; }));
-  try { await Promise.all(jobs); } catch (err) { /* pickers stay empty; the form still works */ }
-  fillCatalogPickers();
+  if (perm('pt.orders.place')) {
+    try { state.fgCatalog = await api('getFGCatalog') || []; } catch (err) { state.fgCatalog = []; }
+    document.getElementById('fgOptions').innerHTML = state.fgCatalog
+      .map(o => '<option value="' + escapeHtml(o.code + ' — ' + (o.name || '')) + '">').join('');
+    enhanceAllDatalists_();
+  }
+}
+
+// Items by what travels on a link: raw material, elements or finished
+// goods. Fetched the first time a form needs them, then kept.
+async function loadItems(kind) {
+  state.items = state.items || {};
+  if (!state.items[kind]) state.items[kind] = await api('getItems', { kind: kind }) || [];
+  return state.items[kind];
 }
 
 function perm(name) {
   return !!(state.me && state.me.permissions && state.me.permissions[name]);
 }
 
-function fillCatalogPickers() {
-  document.getElementById('fgOptions').innerHTML = state.fgCatalog
-    .map(o => '<option value="' + escapeHtml(o.code + ' — ' + (o.name || '')) + '">').join('');
-  document.getElementById('rmOptions').innerHTML = state.rmCatalog
-    .map(o => '<option value="' + escapeHtml(o.code + ' — ' + (o.name || '')) + '">').join('');
-  document.getElementById('specOptions').innerHTML = state.specs
-    .map(s => '<option value="' + escapeHtml(s) + '">').join('');
-  enhanceAllDatalists_();
+// Your own department, where it's on the route; otherwise the first one
+// you're allowed to look at.
+function defaultHoDept() {
+  const wf = state.workflow;
+  if (!wf) return '';
+  const mine = state.me ? state.me.department : '';
+  if (wf.departments.indexOf(mine) > -1 && wf.visible.indexOf(mine) > -1) return mine;
+  return wf.visible[0] || '';
 }
 
-// Both catalog pickers hold "CODE — NAME"; this is the only place that
-// knows how to get the code back out, and it refuses anything that isn't
-// in the catalog rather than sending it on to be rejected by the backend.
+function canActFor(dept) {
+  return !!state.me && (state.me.isAdmin || perm('pt.handover.any') || state.me.department === dept);
+}
+
+// Where a department can send (its next department, or back to the one
+// before, as a return), and who it can ask (the reverse of each).
+function neighbours(dept) {
+  const out = [], ins = [];
+  ((state.workflow && state.workflow.links) || []).forEach(l => {
+    if (l.from === dept) { out.push({ dept: l.to, kind: l.kind, direction: 'Forward' }); ins.push({ dept: l.to, kind: l.kind, direction: 'Return' }); }
+    if (l.to === dept) { out.push({ dept: l.from, kind: l.kind, direction: 'Return' }); ins.push({ dept: l.from, kind: l.kind, direction: 'Forward' }); }
+  });
+  // The usual move first: forward along the route, then returns.
+  const order = (a, b) => (a.direction === 'Forward' ? 0 : 1) - (b.direction === 'Forward' ? 0 : 1);
+  return { out: out.sort(order), ins: ins.sort(order) };
+}
+
+// Asking a department that normally receives from you is asking for a
+// return, and sending back up the route is one — either way it's marked.
+function neighbourLabel(n) {
+  return n.dept + (n.direction === 'Return' ? ' (return)' : '');
+}
+
 function resolveCode(text, catalog) {
   const raw = String(text || '').trim();
   if (!raw) return '';
@@ -1701,40 +1765,45 @@ function resolveCode(text, catalog) {
   return hit ? hit.code : '';
 }
 
+/* =========================================================================
+   RENDERING
+   ========================================================================= */
+
 function renderAll() {
   renderStats();
   renderOrders();
-  renderRequests();
-  renderBatches();
-  renderElements();
-  fillActionPickers();
+  renderHandovers();
+}
+
+function statusClass(status) {
+  if (status === 'Received' || status === 'Dispatched') return 'status status-ok';
+  if (status === 'Rejected') return 'status status-critical';
+  if (status === 'Requested' || status === 'Sent' || status === 'Pending') return 'status status-low';
+  return 'status status-none';
+}
+
+function emptyRow(cols, message) {
+  return '<tr><td colspan="' + cols + '"><div class="empty-state">' + escapeHtml(message) + '</div></td></tr>';
 }
 
 function renderStats() {
   const today = new Date().toDateString();
   const pending = state.orders.filter(o => o.Status === 'Pending').length;
   const todayCount = state.orders.filter(o => o.Date && new Date(o.Date).toDateString() === today).length;
-  const openReq = state.rmRequests.concat(state.prodRequests).filter(r => r.Status !== 'Received').length;
-  const inProcess = state.elements.filter(e => e.CurrentStatus === 'In Process').length;
-
   document.getElementById('statPending').textContent = pending;
   document.getElementById('statPendingSub').textContent = state.orders.length + ' order' + (state.orders.length === 1 ? '' : 's') + ' in all';
   document.getElementById('statToday').textContent = todayCount;
-  document.getElementById('statOpenReq').textContent = openReq;
-  document.getElementById('statOpenReqSub').textContent = state.rmRequests.length + ' RM · ' + state.prodRequests.length + ' production';
-  document.getElementById('statElements').textContent = inProcess;
-  document.getElementById('statElementsSub').textContent = state.elements.length + ' element' + (state.elements.length === 1 ? '' : 's') + ' in all';
-}
 
-function statusClass(status) {
-  if (status === 'Received' || status === 'Available' || status === 'Sent to Winding') return 'status status-ok';
-  if (status === 'Rejected' || status === 'Failed') return 'status status-critical';
-  if (status === 'Requested' || status === 'Pending') return 'status status-low';
-  return 'status status-none';
-}
+  const dept = state.hoDept, rows = (state.ho && state.ho.handovers) || [];
+  const toReceive = rows.filter(h => h.Status === 'Sent' && h.ToDept === dept).length;
+  const toAnswer = rows.filter(h => h.Status === 'Requested' && h.FromDept === dept).length;
+  document.getElementById('statOpenReq').textContent = dept ? toReceive + toAnswer : '—';
+  document.getElementById('statOpenReqSub').textContent = dept ? toReceive + ' to receive · ' + toAnswer + ' to answer · ' + dept : 'Not on the route';
 
-function emptyRow(cols, message) {
-  return '<tr><td colspan="' + cols + '"><div class="empty-state">' + escapeHtml(message) + '</div></td></tr>';
+  const holds = state.ho && state.ho.roles && state.ho.roles.holds;
+  const onHand = holds ? Object.values(state.ho.onHand || {}).reduce((a, b) => a + (Number(b) || 0), 0) : null;
+  document.getElementById('statElements').textContent = holds ? formatQty(onHand) : '—';
+  document.getElementById('statElementsSub').textContent = holds ? 'In ' + dept : (dept ? dept + ' holds no elements' : '');
 }
 
 function renderOrders() {
@@ -1753,128 +1822,253 @@ function renderOrders() {
     '</tr>').join('');
 }
 
-// Which button a row offers depends on the request's own state and on who
-// is looking: approving belongs to the department it was sent to,
-// receiving to the one that asked.
-function requestAction(r) {
-  const mine = (dept) => state.me && (state.me.isAdmin || state.me.department === dept);
-  if (r.Status === 'Requested' && mine(r.ToDept)) {
-    return '<button class="btn-compact" data-act="approve" data-req="' + escapeHtml(r.ReqID) + '">Approve</button>';
-  }
-  if (r.Status === 'Approved' && r.Type === 'RM' && mine(r.ToDept)) {
-    return '<button class="btn-compact" data-act="issue" data-req="' + escapeHtml(r.ReqID) + '">Issue</button>';
-  }
-  if (r.Status === 'Approved' && r.Type === 'Internal') {
-    return '<span class="muted">Waiting on ' + escapeHtml(r.ToDept) + '</span>';
-  }
-  if (r.Status === 'Issued' && mine(r.FromDept)) {
-    return '<button class="btn-compact" data-act="receive" data-req="' + escapeHtml(r.ReqID) + '">Confirm receipt</button>';
-  }
-  return '<span class="muted">—</span>';
+function hoLabel(h) {
+  return '<span class="mono">' + escapeHtml(h.HandoverID) + '</span>' +
+    (h.Direction === 'Return' ? ' <span class="status status-none">return</span>' : '');
 }
 
-function renderRequests() {
-  const rm = document.getElementById('rmRequestsBody');
-  rm.innerHTML = state.rmRequests.length ? state.rmRequests.map(r =>
-    '<tr>' +
-    '<td class="mono">' + formatDateTime(r.Date) + '</td>' +
-    '<td class="mono">' + escapeHtml(r.ReqID || '') + '</td>' +
-    '<td><div>' + escapeHtml(r.ItemCode || '') + '</div><div class="muted">' + escapeHtml(r.ItemName || '') + '</div></td>' +
-    '<td class="mono num">' + formatQty(r.Qty) + '</td>' +
-    '<td>' + escapeHtml(r.FromDept || '') + '</td>' +
-    '<td><span class="' + statusClass(r.Status) + '">' + escapeHtml(r.Status || '') + '</span></td>' +
-    '<td class="muted">' + escapeHtml(r.RequestedBy || '') + '</td>' +
-    '<td>' + requestAction(r) + '</td>' +
-    '</tr>').join('') : emptyRow(8, 'No RM requests yet.');
-
-  const prod = document.getElementById('prodRequestsBody');
-  prod.innerHTML = state.prodRequests.length ? state.prodRequests.map(r =>
-    '<tr>' +
-    '<td class="mono">' + formatDateTime(r.Date) + '</td>' +
-    '<td class="mono">' + escapeHtml(r.ReqID || '') + '</td>' +
-    '<td>' + escapeHtml(r.ItemName || '') + '</td>' +
-    '<td class="mono num">' + formatQty(r.Qty) + '</td>' +
-    '<td>' + escapeHtml(r.FromDept || '') + '</td>' +
-    '<td>' + escapeHtml(r.ToDept || '') + '</td>' +
-    '<td><span class="' + statusClass(r.Status) + '">' + escapeHtml(r.Status || '') + '</span></td>' +
-    '<td class="mono">' + escapeHtml(r.ItemCode || '—') + '</td>' +
-    '<td>' + requestAction(r) + '</td>' +
-    '</tr>').join('') : emptyRow(9, 'No production requests yet.');
+function hoItem(h) {
+  return escapeHtml(h.ItemCode) + (h.ItemName && h.ItemName !== h.ItemCode ? '<div class="muted">' + escapeHtml(h.ItemName) + '</div>' : '');
 }
 
-function renderBatches() {
-  const body = document.getElementById('batchesBody');
-  body.innerHTML = state.batches.length ? state.batches.map(b =>
-    '<tr>' +
-    '<td class="mono">' + formatDateTime(b.CreatedDate) + '</td>' +
-    '<td class="mono">' + escapeHtml(b.MPPCode || '') + '</td>' +
-    '<td class="mono">' + escapeHtml(String(b.BatchNo || '')) + '</td>' +
-    '<td>' + escapeHtml(b.Type || '') + '</td>' +
-    '<td class="mono num">' + formatQty(b.QtyCreated) + '</td>' +
-    '<td>' + escapeHtml(String(b.Grade || '—')) + '</td>' +
-    '<td><span class="' + statusClass(b.Status) + '">' + escapeHtml(b.Status || '') + '</span></td>' +
-    '<td class="muted">' + escapeHtml(b.Operator || '') + '</td>' +
-    '</tr>').join('') : emptyRow(8, 'No MPP batches yet.');
+function hoQty(h) {
+  return formatQty(h.Qty) + (h.Unit ? ' ' + escapeHtml(h.Unit) : '');
 }
 
-function renderElements() {
-  const body = document.getElementById('elementsBody');
-  body.innerHTML = state.elements.length ? state.elements.map(el =>
-    '<tr>' +
-    '<td class="mono">' + formatDateTime(el.WindingDate) + '</td>' +
-    '<td class="mono">' + escapeHtml(el.ElementCode || '') + '</td>' +
-    '<td class="mono">' + escapeHtml(el.SlitMPPCode || '') + '</td>' +
-    '<td>' + escapeHtml(el.Spec || '') + '</td>' +
-    '<td>' + escapeHtml(el.Customer || '—') + '</td>' +
-    '<td>' + escapeHtml(el.CurrentStage || '') + '</td>' +
-    '<td>' + escapeHtml(el.TestResult || '—') + '</td>' +
-    '<td><span class="' + statusClass(el.CurrentStatus) + '">' + escapeHtml(el.CurrentStatus || '') + '</span></td>' +
-    '</tr>').join('') : emptyRow(8, 'No elements yet.');
+function hoButton(act, h, label, danger) {
+  return '<button type="button" class="' + (danger ? 'btn-ghost btn-danger-text' : 'btn-ghost') + '" data-ho-act="' + act +
+         '" data-ho-id="' + escapeHtml(h.HandoverID) + '">' + label + '</button>';
 }
 
-// The production forms only offer what can actually be acted on — an
-// approved request, a batch still to be slit, an element at the right
-// stage — so an impossible combination can't be picked in the first place.
-function fillActionPickers() {
-  const opts = (rows, value, label, empty) => rows.length
-    ? rows.map(r => '<option value="' + escapeHtml(value(r)) + '">' + escapeHtml(label(r)) + '</option>').join('')
-    : '<option value="">' + escapeHtml(empty) + '</option>';
+function renderHandovers() {
+  const wf = state.workflow;
+  const dept = state.hoDept;
+  const data = state.ho;
 
-  const mppReqs = state.prodRequests.filter(r => r.ToDept === 'Metallization' && r.Status === 'Approved');
-  document.getElementById('mppReq').innerHTML =
-    opts(mppReqs, r => r.ReqID, r => r.ReqID + ' · ' + r.ItemName + ' · ' + formatQty(r.Qty), 'Nothing approved yet');
+  const sel = document.getElementById('hoDept');
+  const choices = wf ? wf.visible.filter(d => wf.departments.indexOf(d) > -1) : [];
+  sel.innerHTML = choices.map(d => '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>').join('');
+  if (dept) sel.value = dept;
+  document.getElementById('hoDeptPanel').classList.toggle('hidden', choices.length < 2);
 
-  const created = state.batches.filter(b => b.Status === 'Created');
-  document.getElementById('bomBatch').innerHTML =
-    opts(created, b => b.MPPCode, b => b.MPPCode + ' · ' + b.Type + ' · batch ' + b.BatchNo, 'No batches waiting to be slit');
+  const onRoute = !!(wf && dept && wf.departments.indexOf(dept) > -1);
+  document.getElementById('hoNotInRoute').classList.toggle('hidden', onRoute || !wf);
+  if (!onRoute && wf) {
+    document.getElementById('hoNotInRouteText').textContent = (state.me ? state.me.department : 'Your department') +
+      ' isn\u2019t on the handover route. The route runs: ' +
+      wf.links.filter(l => l.kind !== 'WIP' || true).map(l => l.from + ' \u2192 ' + l.to).join(', ') + '.';
+  }
+  document.getElementById('hoDeptName').textContent = dept || '\u2014';
+  document.getElementById('hoFresh').textContent = state.loadedAt.all ? 'Updated ' + formatDateTime(state.loadedAt.all) : '';
 
-  const slitReqs = state.prodRequests.filter(r => r.ToDept === 'Slitting' && r.Status === 'Approved');
-  document.getElementById('bomReq').innerHTML =
-    '<option value="">Don\u2019t close a request</option>' +
-    slitReqs.map(r => '<option value="' + escapeHtml(r.ReqID) + '">' + escapeHtml(r.ReqID + ' · ' + r.ItemName) + '</option>').join('');
+  const act = onRoute && canActFor(dept);
+  const rows = (data && data.handovers) || [];
 
-  const slit = state.batches.filter(b => b.Status === 'Sent to Winding');
-  document.getElementById('elBatch').innerHTML =
-    opts(slit, b => b.MPPCode, b => b.MPPCode + ' · ' + b.Type, 'No slit batches waiting');
+  // ---- waiting: sent to this department, or asked of it ----
+  const waiting = rows.filter(h => (h.Status === 'Sent' && h.ToDept === dept) || (h.Status === 'Requested' && h.FromDept === dept));
+  document.getElementById('hoWaitingBody').innerHTML = waiting.length ? waiting.map(h => {
+    const isSent = h.Status === 'Sent';
+    const buttons = !act ? '' : isSent
+      ? (perm('pt.handover.receive') ? hoButton('receive', h, 'Receive') + hoButton('reject', h, 'Reject', true) : '')
+      : (perm('pt.handover.send') ? hoButton('fulfil', h, 'Send') + hoButton('decline', h, 'Decline', true) : '');
+    return '<tr><td>' + escapeHtml(formatDateTime(h.SentDate || h.Date)) + '</td><td>' + hoLabel(h) + '</td><td>' +
+      escapeHtml(isSent ? h.FromDept : h.ToDept + ' asks') + '</td><td>' + hoItem(h) + '</td><td class="num">' + hoQty(h) +
+      '</td><td><span class="' + statusClass(h.Status) + '">' + escapeHtml(h.Status) + '</span></td><td class="row-actions">' + buttons + '</td></tr>';
+  }).join('') : emptyRow(7, onRoute ? 'Nothing waiting for ' + dept + '.' : 'Pick a department on the route.');
 
-  const wound = state.elements.filter(e => e.CurrentStage === 'Wound');
-  document.getElementById('sprayElement').innerHTML =
-    opts(wound, e => e.ElementCode, e => e.ElementCode + ' · ' + e.Spec, 'No wound elements waiting');
+  // ---- sent and asked by this department ----
+  const out = rows.filter(h => (h.Status === 'Sent' && h.FromDept === dept) || (h.Status === 'Requested' && h.ToDept === dept));
+  document.getElementById('hoOutBody').innerHTML = out.length ? out.map(h => {
+    const mine = h.Status === 'Sent' ? perm('pt.handover.send') : perm('pt.handover.receive');
+    return '<tr><td>' + escapeHtml(formatDateTime(h.SentDate || h.Date)) + '</td><td>' + hoLabel(h) + '</td><td>' +
+      escapeHtml(h.Status === 'Sent' ? 'to ' + h.ToDept : 'asked of ' + h.FromDept) + '</td><td>' + hoItem(h) + '</td><td class="num">' + hoQty(h) +
+      '</td><td><span class="' + statusClass(h.Status) + '">' + escapeHtml(h.Status) + '</span></td><td class="row-actions">' +
+      (act && mine ? hoButton('cancel', h, 'Cancel', true) : '') + '</td></tr>';
+  }).join('') : emptyRow(7, 'Nothing outstanding.');
 
-  const sprayed = state.elements.filter(e => e.CurrentStage === 'Spray');
-  document.getElementById('scElement').innerHTML =
-    opts(sprayed, e => e.ElementCode, e => e.ElementCode + ' · ' + e.Spec, 'No sprayed elements waiting');
+  // ---- settled ----
+  const closed = rows.filter(h => ['Received', 'Rejected', 'Declined', 'Cancelled'].indexOf(h.Status) > -1).slice(0, 50);
+  document.getElementById('hoHistoryBody').innerHTML = closed.length ? closed.map(h =>
+    '<tr><td>' + escapeHtml(formatDateTime(h.ReceivedDate || h.ClosedDate || h.Date)) + '</td><td>' + hoLabel(h) + '</td><td>' +
+    escapeHtml(h.FromDept) + '</td><td>' + escapeHtml(h.ToDept) + '</td><td>' + hoItem(h) + '</td><td class="num">' + hoQty(h) +
+    '</td><td><span class="' + statusClass(h.Status) + '">' + escapeHtml(h.Status) + '</span></td></tr>').join('')
+    : emptyRow(7, 'No settled handovers yet.');
 
+  // ---- forms ----
+  const nb = neighbours(dept);
+  const showSend = act && perm('pt.handover.send') && nb.out.length > 0;
+  const showAsk = act && perm('pt.handover.receive') && nb.ins.length > 0;
+  document.getElementById('hoSendPanel').classList.toggle('hidden', !showSend);
+  document.getElementById('hoAskPanel').classList.toggle('hidden', !showAsk);
+  if (showSend && !state.fulfilling) fillNeighbourSelect('hoSendTo', nb.out, false);
+  if (showAsk) fillNeighbourSelect('hoAskFrom', nb.ins, true);
+  if (showSend) onSendTargetChange();
+  if (showAsk) onAskSourceChange();
+
+  // ---- elements ----
+  const roles = (data && data.roles) || {};
+  document.getElementById('hoWipPanel').classList.toggle('hidden', !onRoute || !roles.holds);
+  const onHand = (data && data.onHand) || {};
+  const specs = Object.keys(onHand).filter(k => Number(onHand[k]) !== 0).sort();
+  document.getElementById('hoWipBody').innerHTML = specs.length
+    ? specs.map(k => '<tr><td>' + escapeHtml(k) + '</td><td class="num">' + formatQty(onHand[k]) + '</td></tr>').join('')
+    : emptyRow(2, 'No elements in ' + dept + ' right now.');
+  const types = [];
+  if (roles.produces) types.push(['Produced', 'Made here']);
+  if (roles.holds) types.push(['Scrapped', 'Scrapped']);
+  if (roles.uses) types.push(['Used', 'Used making finished goods']);
+  const showWip = act && perm('pt.wip.record') && types.length > 0;
+  document.getElementById('hoWipForm').classList.toggle('hidden', !showWip);
+  if (showWip) {
+    const t = document.getElementById('hoWipType');
+    const keep = t.value;
+    t.innerHTML = types.map(x => '<option value="' + x[0] + '">' + x[1] + '</option>').join('');
+    if (types.some(x => x[0] === keep)) t.value = keep;
+    loadItems('WIP').then(items => {
+      document.getElementById('hoWipSpecs').innerHTML = items.map(o => '<option value="' + escapeHtml(o.code) + '">').join('');
+    }).catch(() => {});
+  }
   enhanceAllSelects_();
+  enhanceAllDatalists_();
+}
+
+function fillNeighbourSelect(id, list, asking) {
+  const sel = document.getElementById(id);
+  const keep = sel.value;
+  sel.innerHTML = list.map(n => '<option value="' + escapeHtml(n.dept) + '" data-kind="' + n.kind + '">' +
+    escapeHtml(neighbourLabel(n, asking)) + '</option>').join('');
+  if (list.some(n => n.dept === keep)) sel.value = keep;
+}
+
+function kindOf(selectId) {
+  const opt = document.getElementById(selectId).selectedOptions[0];
+  return opt ? opt.dataset.kind : '';
+}
+
+async function fillItemList(listId, kind) {
+  try {
+    const items = await loadItems(kind);
+    document.getElementById(listId).innerHTML = items
+      .map(o => '<option value="' + escapeHtml(o.code === o.name ? o.code : o.code + ' — ' + (o.name || '')) + '">').join('');
+    enhanceAllDatalists_();
+  } catch (err) { /* the field still accepts a typed code */ }
+}
+
+function unitFor(kind, text) {
+  const items = (state.items && state.items[kind]) || [];
+  const code = String(text || '').split(' — ')[0].trim();
+  const hit = items.find(o => o.code === code);
+  return hit && hit.unit ? '(' + hit.unit + ')' : '';
+}
+
+const KIND_WORDS = { RM: 'raw material', WIP: 'elements', FG: 'finished goods' };
+
+function onSendTargetChange() {
+  const kind = kindOf('hoSendTo');
+  const to = document.getElementById('hoSendTo').value;
+  const dept = state.hoDept;
+  fillItemList('hoSendItems', kind);
+  const toDispatch = kind === 'FG' && to === 'Dispatch';
+  document.getElementById('hoSendOrderField').classList.toggle('hidden', !toDispatch);
+  if (toDispatch) {
+    document.getElementById('hoOrderOptions').innerHTML = state.orders.filter(o => o.Status === 'Pending')
+      .map(o => '<option value="' + escapeHtml(o.OrderID) + '">' + escapeHtml(o.Customer + ' · ' + o.FGCode + ' × ' + o.Qty) + '</option>').join('');
+  }
+  const stock = state.workflow ? state.workflow.stockHolder : 'Stores';
+  let hint = 'Sends ' + (KIND_WORDS[kind] || 'items') + ' to ' + to + '.';
+  if (kind === 'RM' || kind === 'FG') {
+    hint += ' When ' + to + ' confirms, Stock Management is updated' + (to === stock || dept === stock ? '' : '') + ' — not before.';
+  } else if (kind === 'WIP') {
+    hint += ' Only elements on hand in ' + dept + ' can be sent.';
+  }
+  document.getElementById('hoSendHint').textContent = hint;
+}
+
+function onAskSourceChange() {
+  fillItemList('hoAskItems', kindOf('hoAskFrom'));
+}
+
+function resetSendForm() {
+  state.fulfilling = null;
+  document.getElementById('hoSendForm').reset();
+  ['hoSendTo', 'hoSendItem'].forEach(id => { document.getElementById(id).disabled = false; });
+  document.getElementById('hoSendTitle').textContent = 'Send or return';
+  document.getElementById('hoSendCancelFill').classList.add('hidden');
+  document.getElementById('hoSendUnit').textContent = '';
+  renderHandovers();
+}
+
+// Answering a request fills the send form with what was asked for; the
+// quantity can be changed if less can be sent.
+function fulfilRequest(h) {
+  state.fulfilling = h;
+  const sel = document.getElementById('hoSendTo');
+  const nb = neighbours(state.hoDept).out.filter(n => n.dept === h.ToDept);
+  fillNeighbourSelect('hoSendTo', nb.length ? nb : neighbours(state.hoDept).out, false);
+  sel.value = h.ToDept;
+  sel.dispatchEvent(new Event('change'));
+  document.getElementById('hoSendItem').value = h.ItemCode + (h.ItemName && h.ItemName !== h.ItemCode ? ' — ' + h.ItemName : '');
+  document.getElementById('hoSendQty').value = h.Qty;
+  ['hoSendTo', 'hoSendItem'].forEach(id => { document.getElementById(id).disabled = true; });
+  document.getElementById('hoSendTitle').textContent = 'Send what ' + h.ToDept + ' asked for (' + h.HandoverID + ')';
+  document.getElementById('hoSendCancelFill').classList.remove('hidden');
+  document.getElementById('hoSendPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('hoSendQty').focus();
+}
+
+// The movement a receipt makes in Stock Management, said before it's made.
+function receiveNote(h) {
+  const stock = state.workflow ? state.workflow.stockHolder : 'Stores';
+  const q = formatQty(h.Qty) + (h.Unit ? ' ' + h.Unit : '') + ' of ' + h.ItemCode;
+  if (h.Kind === 'WIP') return 'Receive ' + q + ' into ' + h.ToDept + '?';
+  let what;
+  if (h.Kind === 'RM') what = h.ToDept === stock ? (h.Direction === 'Forward' ? 'a Receipt into ' + stock : 'a Return into ' + stock) : 'an Issue to ' + h.ToDept;
+  else what = h.ToDept === stock ? (h.Direction === 'Forward' ? 'FG Production into ' + stock : 'an FG Return into ' + stock)
+                                 : (h.Direction === 'Forward' ? 'an FG Dispatch' : 'an adjustment taking it out of stock');
+  return 'Receive ' + q + '?\n\nThis posts ' + what + ' in Stock Management.';
+}
+
+function findShown(id) {
+  return ((state.ho && state.ho.handovers) || []).find(h => h.HandoverID === id);
+}
+
+async function onHandoverButton(e) {
+  const b = e.target.closest('[data-ho-act]');
+  if (!b) return;
+  const h = findShown(b.dataset.hoId);
+  if (!h) return;
+  const act = b.dataset.hoAct;
+  if (act === 'fulfil') { fulfilRequest(h); return; }
+
+  const cfg = {
+    receive: { action: 'receiveHandover', label: 'Receipt of ' + h.HandoverID, ok: 'Received ' + h.HandoverID, ask: receiveNote(h) },
+    reject:  { action: 'rejectHandover',  label: 'Rejection of ' + h.HandoverID, ok: 'Rejected ' + h.HandoverID, reason: 'Why is it being rejected? (optional)' },
+    decline: { action: 'declineHandover', label: 'Declining ' + h.HandoverID, ok: 'Declined ' + h.HandoverID, reason: 'Why can\u2019t it be sent? (optional)' },
+    cancel:  { action: 'cancelHandover',  label: 'Cancelling ' + h.HandoverID, ok: 'Cancelled ' + h.HandoverID, reason: 'Why is it being cancelled? (optional)' }
+  }[act];
+  if (!cfg) return;
+  const form = { handoverId: h.HandoverID };
+  if (cfg.ask && !confirm(cfg.ask)) return;
+  if (cfg.reason) {
+    const why = prompt(cfg.reason, '');
+    if (why === null) return;
+    form.reason = why;
+  }
+  b.disabled = true;
+  await submitWrite({ action: cfg.action, form: form, errorId: null, buttonId: null, label: cfg.label,
+                      success: r => r && r.alreadyDone ? cfg.ok + ' (it already was)' : cfg.ok });
+  b.disabled = false;
 }
 
 /* =========================================================================
    FORMS
    ========================================================================= */
 
-const forms = {};
-
 function wireForms() {
+  // Each form keeps its entry between attempts, so a retry after a lost
+  // reply carries the same duplicate-safe ID rather than making a new one.
+  const forms = {};
+
   document.getElementById('orderForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const code = resolveCode(document.getElementById('orderFg').value, state.fgCatalog);
@@ -1894,153 +2088,70 @@ function wireForms() {
       reset: () => { document.getElementById('orderForm').reset(); }
     });
   });
+  document.getElementById('hoDept').addEventListener('change', async (e) => {
+    state.hoDept = e.target.value;
+    state.fulfilling = null;
+    state.ho = null;
+    renderAll();
+    await refreshAll({ quiet: false });
+  });
+  document.getElementById('hoSendTo').addEventListener('change', onSendTargetChange);
+  document.getElementById('hoAskFrom').addEventListener('change', onAskSourceChange);
+  document.getElementById('hoSendItem').addEventListener('change', () => {
+    document.getElementById('hoSendUnit').textContent = unitFor(kindOf('hoSendTo'), document.getElementById('hoSendItem').value);
+  });
+  document.getElementById('hoAskItem').addEventListener('change', () => {
+    document.getElementById('hoAskUnit').textContent = unitFor(kindOf('hoAskFrom'), document.getElementById('hoAskItem').value);
+  });
+  document.getElementById('hoSendCancelFill').addEventListener('click', resetSendForm);
+  document.getElementById('page-handovers').addEventListener('click', onHandoverButton);
 
-  document.getElementById('rmRequestForm').addEventListener('submit', async (e) => {
+  document.getElementById('hoSendForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const code = resolveCode(document.getElementById('rmItem').value, state.rmCatalog);
-    if (!code) return showFormError('rmRequestError', 'Pick an RM item from the list.');
-    forms.rm = forms.rm || {};
-    Object.assign(forms.rm, {
-      itemCode: code,
-      qty: Number(document.getElementById('rmQty').value),
-      orderRef: document.getElementById('rmOrderRef').value.trim()
-    });
-    await submitWrite({
-      action: 'requestRM', form: forms.rm, errorId: 'rmRequestError', buttonId: 'rmRequestBtn',
-      label: 'RM request for ' + code,
-      success: (r) => 'Request ' + r.ReqID + ' sent to Store',
-      reset: () => { document.getElementById('rmRequestForm').reset(); }
-    });
+    const kind = kindOf('hoSendTo');
+    const items = await loadItems(kind);
+    const raw = document.getElementById('hoSendItem').value;
+    const code = resolveCode(raw, items);
+    if (!code) return showFormError('hoSendError', 'Pick an item from the list.');
+    const f = state.fulfilling;
+    const to = document.getElementById('hoSendTo').value;
+    const form = f ? { handoverId: f.HandoverID, qty: Number(document.getElementById('hoSendQty').value) }
+                   : { fromDept: state.hoDept, toDept: to, itemCode: code, qty: Number(document.getElementById('hoSendQty').value),
+                       orderRef: document.getElementById('hoSendOrder').value.trim() };
+    form.reference = document.getElementById('hoSendRef').value.trim();
+    form.remarks = document.getElementById('hoSendRemarks').value.trim();
+    const result = await submitWrite({ action: 'sendHandover', form: form, errorId: 'hoSendError', buttonId: 'hoSendBtn',
+      label: 'Handover to ' + (f ? f.ToDept : to),
+      success: r => 'Sent to ' + (f ? f.ToDept : to) + (r && r.handoverId ? ' \u2014 ' + r.handoverId : '') });
+    if (result) resetSendForm();
   });
 
-  document.getElementById('internalRequestForm').addEventListener('submit', async (e) => {
+  document.getElementById('hoAskForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const spec = document.getElementById('intSpec').value.trim().split(' — ')[0];
-    forms.internal = forms.internal || {};
-    Object.assign(forms.internal, {
-      toDept: document.getElementById('intToDept').value,
-      itemSpec: spec,
-      qty: Number(document.getElementById('intQty').value),
-      orderRef: document.getElementById('intOrderRef').value.trim()
-    });
-    await submitWrite({
-      action: 'requestInternal', form: forms.internal, errorId: 'internalRequestError', buttonId: 'internalRequestBtn',
-      label: 'Request for ' + spec,
-      success: (r) => 'Request ' + r.ReqID + ' sent to ' + r.ToDept,
-      reset: () => { document.getElementById('internalRequestForm').reset(); }
-    });
+    const kind = kindOf('hoAskFrom');
+    const items = await loadItems(kind);
+    const code = resolveCode(document.getElementById('hoAskItem').value, items);
+    if (!code) return showFormError('hoAskError', 'Pick an item from the list.');
+    const from = document.getElementById('hoAskFrom').value;
+    await submitWrite({ action: 'requestHandover', errorId: 'hoAskError', buttonId: 'hoAskBtn', label: 'Request to ' + from,
+      form: { fromDept: from, toDept: state.hoDept, itemCode: code, qty: Number(document.getElementById('hoAskQty').value),
+              remarks: document.getElementById('hoAskRemarks').value.trim() },
+      success: r => 'Asked ' + from + (r && r.HandoverID ? ' \u2014 ' + r.HandoverID : ''),
+      reset: () => document.getElementById('hoAskForm').reset() });
   });
 
-  document.getElementById('createMppForm').addEventListener('submit', async (e) => {
+  document.getElementById('hoWipForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    forms.mpp = forms.mpp || {};
-    Object.assign(forms.mpp, {
-      reqId: document.getElementById('mppReq').value,
-      batchNo: document.getElementById('mppBatchNo').value.trim()
-    });
-    if (!forms.mpp.reqId) return showFormError('createMppError', 'There is no approved request to create a code for.');
-    await submitWrite({
-      action: 'createMPPCode', form: forms.mpp, errorId: 'createMppError', buttonId: 'createMppBtn',
-      label: 'MPP code for ' + forms.mpp.reqId,
-      success: (r) => 'Created ' + r.MPPCode + ' · batch ' + r.BatchNo,
-      reset: () => { document.getElementById('mppBatchNo').value = ''; }
-    });
-  });
-
-  document.getElementById('executeBomForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    forms.bom = forms.bom || {};
-    Object.assign(forms.bom, {
-      mppCode: document.getElementById('bomBatch').value,
-      grade: document.getElementById('bomGrade').value.trim(),
-      slitMachine: document.getElementById('bomMachine').value.trim(),
-      weight: document.getElementById('bomWeight').value,
-      reelCount: document.getElementById('bomReels').value,
-      reqId: document.getElementById('bomReq').value
-    });
-    if (!forms.bom.mppCode) return showFormError('executeBomError', 'There is no batch waiting to be slit.');
-    await submitWrite({
-      action: 'executeMPPBOM', form: forms.bom, errorId: 'executeBomError', buttonId: 'executeBomBtn',
-      label: 'BOM for ' + forms.bom.mppCode,
-      success: (r) => r.mppCode + ' sent to Winding · ' + (r.linesPosted || []).length + ' stock line(s) posted',
-      reset: () => { document.getElementById('executeBomForm').reset(); }
-    });
-  });
-
-  document.getElementById('createElementForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    forms.element = forms.element || {};
-    Object.assign(forms.element, {
-      slitMppCode: document.getElementById('elBatch').value,
-      windMachine: document.getElementById('elMachine').value.trim(),
-      customer: document.getElementById('elCustomer').value.trim(),
-      drawingRef: document.getElementById('elDrawing').value.trim(),
-      notes: document.getElementById('elNotes').value.trim()
-    });
-    if (!forms.element.slitMppCode) return showFormError('createElementError', 'There is no slit batch waiting.');
-    await submitWrite({
-      action: 'createElement', form: forms.element, errorId: 'createElementError', buttonId: 'createElementBtn',
-      label: 'Element from ' + forms.element.slitMppCode,
-      success: (r) => 'Created ' + r.ElementCode,
-      reset: () => { document.getElementById('createElementForm').reset(); }
-    });
-  });
-
-  document.getElementById('sprayForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    forms.spray = forms.spray || {};
-    Object.assign(forms.spray, {
-      elementCode: document.getElementById('sprayElement').value,
-      toStage: 'Spray',
-      notes: document.getElementById('sprayNotes').value.trim()
-    });
-    if (!forms.spray.elementCode) return showFormError('sprayError', 'There is no wound element waiting.');
-    await submitWrite({
-      action: 'updateElementStage', form: forms.spray, errorId: 'sprayError', buttonId: 'sprayBtn',
-      label: 'Spray for ' + forms.spray.elementCode,
-      success: (r) => r.elementCode + ' marked sprayed',
-      reset: () => { document.getElementById('sprayNotes').value = ''; }
-    });
-  });
-
-  document.getElementById('scForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    forms.sc = forms.sc || {};
-    Object.assign(forms.sc, {
-      elementCode: document.getElementById('scElement').value,
-      testResult: document.getElementById('scResult').value,
-      notes: document.getElementById('scNotes').value.trim()
-    });
-    if (!forms.sc.elementCode) return showFormError('scError', 'There is no sprayed element waiting.');
-    await submitWrite({
-      action: 'executeELEBOM', form: forms.sc, errorId: 'scError', buttonId: 'scBtn',
-      label: 'Short Clearance for ' + forms.sc.elementCode,
-      success: (r) => r.elementCode + ' — ' + r.testResult + ' · now ' + r.currentStage,
-      reset: () => { document.getElementById('scNotes').value = ''; }
-    });
-  });
-
-  // Approve / Issue / Confirm receipt, from the request tables.
-  document.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-act]');
-    if (!btn) return;
-    const reqId = btn.dataset.req;
-    const act = btn.dataset.act;
-    const map = {
-      approve: { action: 'approveRequest', label: 'Approval of ' + reqId, done: 'approved' },
-      issue: { action: 'issueRM', label: 'Issue of ' + reqId, done: 'issued' },
-      receive: { action: 'receiveRequest', label: 'Receipt of ' + reqId, done: 'marked received' }
-    }[act];
-    if (!map) return;
-
-    forms[act + reqId] = forms[act + reqId] || { reqId: reqId };
-    btn.disabled = true;
-    await submitWrite({
-      action: map.action, form: forms[act + reqId], errorId: null, buttonId: null,
-      label: map.label,
-      success: () => reqId + ' ' + map.done
-    });
-    btn.disabled = false;
+    const type = document.getElementById('hoWipType').value;
+    const spec = document.getElementById('hoWipSpec').value.trim();
+    if (!spec) return showFormError('hoWipError', 'Pick or type the element spec.');
+    const result = await submitWrite({ action: 'recordWIP', errorId: 'hoWipError', buttonId: 'hoWipBtn', label: type + ' elements',
+      form: { dept: state.hoDept, type: type, itemCode: spec, qty: Number(document.getElementById('hoWipQty').value),
+              remarks: document.getElementById('hoWipRemarks').value.trim() },
+      success: r => type + ': ' + formatQty(r.Qty) + ' \u00d7 ' + r.ItemCode,
+      reset: () => document.getElementById('hoWipForm').reset() });
+    // A spec Winding just started is now a spec everyone can pick.
+    if (result && state.items) delete state.items.WIP;
   });
 
   document.getElementById('traceForm').addEventListener('submit', async (e) => {
@@ -2058,13 +2169,8 @@ function wireForms() {
       errEl.textContent = err.message;
       errEl.classList.remove('hidden');
     }
-  });
-}
+  });}
 
-// An unreadable answer almost always means the request never ran: Apps
-// Script redirected it to a Google sign-in page because the deployment
-// isn't open to everyone. Worth saying, because the raw message sounds
-// like a network fault and sends people looking in the wrong place.
 function explainError(err) {
   if (!err || !err.indeterminate) return err ? err.message : 'Request failed';
   return err.message + ' If this keeps happening, check the Apps Script deployment is set to ' +
@@ -2135,22 +2241,9 @@ function syncTopbarTitle(pageEl) {
 // Panels appear only for the departments that can use them, so nobody is
 // offered a button that would be refused.
 function applyPermissions() {
-  const show = (id, allowed) => document.getElementById(id).classList.toggle('hidden', !allowed);
-  show('placeOrderPanel', perm('placeOrder'));
-  show('requestRmPanel', perm('requestRM'));
-  show('requestInternalPanel', perm('requestInternal'));
-  show('createMppPanel', perm('createMPPCode'));
-  show('executeBomPanel', perm('executeMPPBOM'));
-  show('createElementPanel', perm('createElementCode'));
-  show('sprayPanel', perm('updateStage'));
-  show('scPanel', perm('executeELEBOM'));
-
-  const targets = { Winding: ['Slitting'], Slitting: ['Metallization'] };
-  const mine = state.me && state.me.isAdmin
-    ? ['Slitting', 'Metallization']
-    : (targets[state.me ? state.me.department : ''] || []);
-  document.getElementById('intToDept').innerHTML = mine.map(d => '<option value="' + d + '">' + d + '</option>').join('');
-  document.getElementById('internalTargetHint').textContent = mine.length ? 'To: ' + mine.join(', ') : '';
+  // Handover panels depend on the department being looked at, so they are
+  // shown or hidden as that page renders; only the order form is fixed.
+  document.getElementById('placeOrderPanel').classList.toggle('hidden', !perm('pt.orders.place'));
 }
 
 function updateConnBadge() {
@@ -2169,7 +2262,7 @@ function updateConnBadge() {
 }
 
 function initTheme() {
-  const saved = localStorage.getItem('stock_theme');
+  const saved = localStorage.getItem(THEME_KEY);
   if (saved === 'dark' || (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) toggleTheme(true);
 }
 
@@ -2182,7 +2275,7 @@ function toggleTheme(forceDark) {
   document.getElementById('metaThemeColor').setAttribute('content', dark ? '#14171c' : '#f3f0ea');
   // Shared with the other CALGAS apps on this origin, so the choice
   // follows the operator from one to the next.
-  localStorage.setItem('stock_theme', dark ? 'dark' : 'light');
+  localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
 }
 
 function escapeHtml(str) {
