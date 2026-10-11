@@ -1,4 +1,4 @@
-# CALGAS Capacitors — Production Tracker 3.1
+# CALGAS Capacitors — Production Tracker 3.2
 
 Material moving through the factory, one department to the next, and back when it has to go back.
 
@@ -114,6 +114,18 @@ Requests for Metallization or Slitting material are listed in the log, not moved
 4. Everyone signs in to Production Tracker again, so their session carries the new grants.
 
 **Upgrading from 3.0 to 3.1 (files):** deploy Stock Management 3.14.0 first, then this Code.gs as a new version, and run **`ADMIN_setupAttachments()`** once from the editor. This app has never used Google Drive before, so Google will ask you to approve Drive access — approve it. The run makes the Attachments tab and folders and logs where files will go. Then push index.html and sw.js. If a receipt's files ever didn't reach Stock Management, running it again finishes them.
+
+**Upgrading from 3.1 to 3.2:** deploy Stock Management 3.16.0 first, then this Code.gs as a new version, then push index.html and sw.js. To let Trace find ELE Tracker batches, put the ELE spreadsheet's ID in `ELE_SHEET_ID` at the top of Code.gs before deploying.
+
+## What changed in 3.2
+
+- **Stores can't send what it doesn't have.** Sending raw material or finished goods out of Stores checks Stock Management's balance, less what Stores has already sent and not yet had received. The sender hears it, instead of the receiver finding out at confirm.
+- **Orders move on.** Anyone who can place orders can set an order's status (Pending, In production, Part dispatched, Dispatched, Cancelled) from the Orders table. A finished-goods dispatch received against an order sets it to Part dispatched or Dispatched on its own.
+- **Trace finds ELE batches.** With `ELE_SHEET_ID` set, Trace looks up an ELE Tracker batch by its Master Batch No and lists every stage entry.
+- **Receiving doesn't hold everyone up.** The app no longer keeps its write lock while it waits on Stock Management, so other entries aren't told the system is busy.
+- **New element specs are a Manager's call.** A spec typed with only spaces or dots different from an existing one is caught as a typo; a genuinely new spec needs a Manager (act for any department) or Admin.
+- **Old handovers can be archived.** `ADMIN_archiveHandovers(12)` moves closed handovers older than 12 months to Handovers_Archive, carrying their elements over as one entry per department and spec so on-hand totals don't change. Archived handovers and their files still open.
+- Also: a resent entry ID only replays the same action for the same person; if this app and Stock Management create the attachments folder at the same moment, only one is kept; `ADMIN_checkStockLink` uses Stock Management's new `ping`.
 
 ## Every change is logged
 

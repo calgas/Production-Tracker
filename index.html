@@ -568,6 +568,8 @@
   .status svg { flex-shrink: 0; }
   .status-ok { background: var(--ok-soft); color: var(--ok); border-color: rgba(63, 158, 115, 0.3); }
   .status-low { background: var(--low-soft); color: var(--low); border-color: rgba(201, 154, 62, 0.3); }
+  .order-status-select { font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); color: var(--ink); cursor: pointer; }
+  .order-status-select:disabled { opacity: 0.6; cursor: wait; }
   .status-critical { background: var(--critical-soft); color: var(--critical); border-color: rgba(217, 80, 58, 0.3); }
   .status-none { background: var(--none-soft); color: var(--none-ink); border-color: rgba(107, 114, 128, 0.2); }
 
@@ -1391,7 +1393,7 @@
    - PT_API_URL      everything else.
    ========================================================================= */
 
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.2.0';
 const PT_API_URL = 'https://script.google.com/macros/s/AKfycbx_STLX2W1VDwOsxv3UpdpbPitg2ICXHXtbItWEvesmoQsuBdKO9Eg6KHwSoIZlPeO0CA/exec';
 const STOCK_API_URL = 'https://script.google.com/macros/s/AKfycbyxTvERmZY63TC9Pz4tMXb9x3mbT9hOe0YDuq2dNr5D5tkku2kYffFtmEzILuP1G9DrKA/exec';
 
@@ -1419,7 +1421,7 @@ const PENDING_RECHECK_MS = 8000;
 // one carrying a clientTxnId may be resent, because the backend
 // recognises the ID and refuses to do the work twice.
 const MUTATING_ACTIONS = {
-  placeOrder: true, requestHandover: true, sendHandover: true, receiveHandover: true,
+  placeOrder: true, updateOrderStatus: true, requestHandover: true, sendHandover: true, receiveHandover: true,
   rejectHandover: true, declineHandover: true, cancelHandover: true, recordWIP: true,
   uploadHandoverFile: true, removeHandoverFile: true
 };
@@ -1843,8 +1845,20 @@ function renderAll() {
 function statusClass(status) {
   if (status === 'Received' || status === 'Dispatched') return 'status status-ok';
   if (status === 'Rejected') return 'status status-critical';
-  if (status === 'Requested' || status === 'Sent' || status === 'Pending') return 'status status-low';
+  if (status === 'Requested' || status === 'Sent' || status === 'Pending' || status === 'In production' || status === 'Part dispatched') return 'status status-low';
   return 'status status-none';
+}
+
+// Matches ORDER_STATUSES in the backend. Orders still open are the ones a
+// dispatch can be sent against.
+const ORDER_STATUSES = ['Pending', 'In production', 'Part dispatched', 'Dispatched', 'Cancelled'];
+const OPEN_ORDER_STATUSES = ['Pending', 'In production', 'Part dispatched'];
+
+function orderStatusCell(o) {
+  if (!perm('pt.orders.place')) return '<span class="' + statusClass(o.Status) + '">' + escapeHtml(o.Status || '') + '</span>';
+  const opts = ORDER_STATUSES.indexOf(o.Status) === -1 && o.Status ? [o.Status].concat(ORDER_STATUSES) : ORDER_STATUSES;
+  return '<select class="no-combo order-status-select" data-order-id="' + escapeHtml(o.OrderID || '') + '" aria-label="Status of ' + escapeHtml(o.OrderID || '') + '">' +
+    opts.map(s => '<option' + (s === o.Status ? ' selected' : '') + '>' + escapeHtml(s) + '</option>').join('') + '</select>';
 }
 
 function emptyRow(cols, message) {
@@ -1882,7 +1896,7 @@ function renderOrders() {
     '<td><div>' + escapeHtml(o.FGCode || '') + '</div><div class="muted">' + escapeHtml(o.FGName || '') + '</div></td>' +
     '<td class="mono num">' + formatQty(o.Qty) + '</td>' +
     '<td>' + escapeHtml(o.Source || '') + '</td>' +
-    '<td><span class="' + statusClass(o.Status) + '">' + escapeHtml(o.Status || '') + '</span></td>' +
+    '<td>' + orderStatusCell(o) + '</td>' +
     '<td class="muted">' + escapeHtml(o.PlacedBy || '') + '</td>' +
     '</tr>').join('');
 }
@@ -2036,7 +2050,7 @@ function onSendTargetChange() {
   const toDispatch = kind === 'FG' && to === 'Dispatch';
   document.getElementById('hoSendOrderField').classList.toggle('hidden', !toDispatch);
   if (toDispatch) {
-    document.getElementById('hoOrderOptions').innerHTML = state.orders.filter(o => o.Status === 'Pending')
+    document.getElementById('hoOrderOptions').innerHTML = state.orders.filter(o => OPEN_ORDER_STATUSES.indexOf(o.Status) > -1)
       .map(o => '<option value="' + escapeHtml(o.OrderID) + '">' + escapeHtml(o.Customer + ' · ' + o.FGCode + ' × ' + o.Qty) + '</option>').join('');
   }
   const stock = state.workflow ? state.workflow.stockHolder : 'Stores';
@@ -2705,6 +2719,18 @@ function wireForms() {
       reset: () => document.getElementById('hoWipForm').reset() });
     // A spec Winding just started is now a spec everyone can pick.
     if (result && state.items) delete state.items.WIP;
+  });
+
+  document.getElementById('ordersBody').addEventListener('change', async (e) => {
+    const sel = e.target.closest('.order-status-select');
+    if (!sel) return;
+    sel.disabled = true;
+    const orderId = sel.dataset.orderId;
+    const result = await submitWrite({ action: 'updateOrderStatus', label: 'Order ' + orderId,
+      form: { orderId: orderId, status: sel.value },
+      success: r => 'Order ' + r.orderId + ' is now ' + r.status + '.' });
+    // Refused or unsettled: put the list back as the backend has it.
+    if (!result) renderOrders();
   });
 
   document.getElementById('traceForm').addEventListener('submit', async (e) => {

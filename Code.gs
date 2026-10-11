@@ -40,6 +40,12 @@ var STOCK_SHEET_ID = '1iCFlMmzjhBiMsS47ahy56gm35LZc1GidJP5yVPnYAbc';
 // its own copy.
 var STOCK_API_URL = 'https://script.google.com/macros/s/AKfycbyxTvERmZY63TC9Pz4tMXb9x3mbT9hOe0YDuq2dNr5D5tkku2kYffFtmEzILuP1G9DrKA/exec';
 
+// ELE Tracker's spreadsheet, where element batches are tracked now. Trace
+// looks there for a code this sheet's own older Elements tab doesn't have.
+// Left blank, Trace says where to look instead. The ID is the long part of
+// the ELE spreadsheet's URL, between /d/ and /edit.
+var ELE_SHEET_ID = '';
+
 // How long a request waits for the write lock before giving up. The
 // frontend's own timeout must be longer than this, or it stops listening
 // while the write is still going ahead.
@@ -104,7 +110,11 @@ function handleRequest_(e) {
           // Its own short locks around a slow Drive write, rather than the
           // one lock every other write holds throughout.
           ? uploadHandoverFile_(session, params)
-          : runWrite_(action, session, params));
+          : action === 'receiveHandover'
+            // Likewise around the call to Stock Management — see
+            // receiveHandover_.
+            ? receiveHandover_(session, params)
+            : runWrite_(action, session, params));
 
     return jsonResponse_({ success: true, data: data });
   } catch (err) {
@@ -129,6 +139,7 @@ function runWrite_(action, session, params) {
     if (clientTxnId) {
       var prior = findIdempotentResult_(clientTxnId);
       if (prior) {
+        checkReplay_(prior, action, session);
         var replay = prior.result;
         if (replay && typeof replay === 'object' && !Array.isArray(replay)) replay.duplicate = true;
         return replay;
@@ -172,6 +183,8 @@ function routeAction_(action, session, params) {
     // --- orders ---
     case 'placeOrder':
       return placeOrder_(session, params);
+    case 'updateOrderStatus':
+      return updateOrderStatus_(session, params);
     case 'getOrders':
       return getOrders_();
     case 'getFGCatalog':
@@ -190,8 +203,8 @@ function routeAction_(action, session, params) {
       return requestHandover_(session, params);
     case 'sendHandover':
       return sendHandover_(session, params);
-    case 'receiveHandover':
-      return receiveHandover_(session, params);
+    // receiveHandover is routed in handleRequest_, outside runWrite_: it
+    // takes and lets go of the lock itself.
     case 'rejectHandover':
       return closeHandover_(session, params, 'reject');
     case 'declineHandover':
@@ -253,6 +266,18 @@ function findIdempotentResult_(clientTxnId) {
     return { clientTxnId: clientTxnId, action: row.Action, user: row.User, at: row.Timestamp, result: result };
   }
   return null;
+}
+
+// A replay answers only the request it was recorded for. IDs are random per
+// entry, so a mismatch means a client bug, not a duplicate — and replaying
+// someone else's answer would report work that wasn't done.
+function checkReplay_(prior, action, session) {
+  if (prior.action && prior.action !== action) {
+    throw new Error('This entry\u2019s ID was already used for a different action (' + prior.action + '). Reload the app and try again.');
+  }
+  if (prior.user && session && prior.user !== session.Username) {
+    throw new Error('This entry\u2019s ID belongs to someone else\u2019s entry. Reload the app and try again.');
+  }
 }
 
 function recordIdempotentResult_(clientTxnId, action, username, result) {
@@ -772,7 +797,9 @@ function ADMIN_checkStockLink() {
     api: null
   };
   var ping = postToStock_({ action: 'ping' });
-  report.api = ping.json ? 'reachable' : 'NOT reachable — check STOCK_API_URL and that the deployment is set to Anyone';
+  report.api = ping.json && ping.json.success ? 'reachable'
+    : ping.json ? 'reachable, but too old to answer ping — deploy Stock Management 3.16 or later'
+    : 'NOT reachable — check STOCK_API_URL and that the deployment is set to Anyone';
   Logger.log(JSON.stringify(report, null, 2));
   return report;
 }
@@ -830,6 +857,48 @@ function placeOrder_(session, params) {
   logAudit_(session.Username, 'PLACE_ORDER', 'Orders', rowObj.OrderID, '',
             JSON.stringify({ customer: rowObj.Customer, fgCode: rowObj.FGCode, qty: rowObj.Qty }));
   return rowObj;
+}
+
+// An order used to stay Pending for ever: nothing moved it on. Whoever can
+// place orders can set its status by hand, and a dispatch received against
+// it sets it on its own (updateOrderFromDispatch_).
+var ORDER_STATUSES = ['Pending', 'In production', 'Part dispatched', 'Dispatched', 'Cancelled'];
+
+function updateOrderStatus_(session, params) {
+  requirePerm_(session, 'pt.orders.place');
+  var id = String(params.orderId || '').trim();
+  var status = String(params.status || '').trim();
+  if (ORDER_STATUSES.indexOf(status) === -1) throw new Error('Status must be one of: ' + ORDER_STATUSES.join(', '));
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Orders');
+  var row = readRowByValue_(sheet, 'OrderID', id);
+  if (!row) throw new Error('Order not found: ' + id);
+  var before = String(row.values[row.map['Status']] || '');
+  if (before === status) return { orderId: id, status: status, alreadyDone: true };
+  writeRowCells_(sheet, row.rowIdx, stageCells_(row.map, { Status: status }));
+  logAudit_(session.Username, 'ORDER_STATUS', 'Orders', id, before, status);
+  return { orderId: id, status: status };
+}
+
+// A finished-goods handover out of Stores that carries an order's ID moves
+// that order on when it's received: Dispatched once everything received
+// against it covers the order's quantity, Part dispatched before that. A
+// cancelled order is left alone.
+function updateOrderFromDispatch_(h, session) {
+  if (h.Kind !== 'FG' || h.FromDept !== STOCK_HOLDER || h.Direction !== 'Forward' || !h.OrderRef) return;
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Orders');
+  var row = sheet ? readRowByValue_(sheet, 'OrderID', String(h.OrderRef)) : null;
+  if (!row) return;
+  var order = rowToObject_(row);
+  if (order.Status === 'Cancelled') return;
+  var sent = 0;
+  readHandovers_().forEach(function (x) {
+    if (x.Kind === 'FG' && x.FromDept === STOCK_HOLDER && x.Direction === 'Forward' &&
+        x.Status === 'Received' && String(x.OrderRef) === String(h.OrderRef)) sent += Number(x.Qty) || 0;
+  });
+  var status = sent + 1e-9 >= (Number(order.Qty) || 0) ? 'Dispatched' : 'Part dispatched';
+  if (status === order.Status) return;
+  writeRowCells_(sheet, row.rowIdx, stageCells_(row.map, { Status: status }));
+  logAudit_(session.Username, 'ORDER_STATUS', 'Orders', order.OrderID, order.Status, status + ' (' + h.HandoverID + ')');
 }
 
 function getOrders_() {
@@ -997,15 +1066,35 @@ function handoversSheet_() {
   return getOrCreateSheet_(SpreadsheetApp.getActiveSpreadsheet(), 'Handovers', TAB_SCHEMA['Handovers']);
 }
 
+// Read once per execution and reused. A send, a WIP entry and a screen
+// load each used to read the whole tab two or three times (on-hand totals,
+// the list, the stock check). Every write below clears it.
+var _handoversCache_ = null;
+function readHandovers_() {
+  if (!_handoversCache_) _handoversCache_ = readSheetAsObjects_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Handovers'));
+  return _handoversCache_;
+}
+
+// A handover moved to the archive (ADMIN_archiveHandovers) is still found,
+// so its files and history keep opening. Archived ones are closed, so
+// nothing writes to them.
 function findHandover_(id) {
   var sheet = handoversSheet_();
-  var row = readRowByValue_(sheet, 'HandoverID', String(id || '').trim());
-  if (!row) throw new Error('Handover not found: ' + id);
+  var key = String(id || '').trim();
+  var row = readRowByValue_(sheet, 'HandoverID', key);
+  if (!row) {
+    var archive = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(HANDOVER_ARCHIVE_TAB);
+    var old = archive ? readRowByValue_(archive, 'HandoverID', key) : null;
+    if (old) return { sheet: archive, row: old, h: rowToObject_(old), archived: true };
+    throw new Error('Handover not found: ' + id);
+  }
   return { sheet: sheet, row: row, h: rowToObject_(row) };
 }
 
 function updateHandover_(found, fields) {
+  if (found.archived) throw new Error(found.h.HandoverID + ' is archived and can\u2019t be changed.');
   writeRowCells_(found.sheet, found.row.rowIdx, stageCells_(found.row.map, fields));
+  _handoversCache_ = null;
 }
 
 function newHandover_(session, link, from, to, item, qty, status, params) {
@@ -1019,6 +1108,7 @@ function newHandover_(session, link, from, to, item, qty, status, params) {
   if (status === 'Requested') rec.RequestedBy = session.Username;
   if (status === 'Sent') { rec.SentBy = session.Username; rec.SentDate = now; }
   appendRowByHeader_(handoversSheet_(), rec);
+  _handoversCache_ = null;
   return rec;
 }
 
@@ -1043,6 +1133,7 @@ function sendHandover_(session, params) {
     requireDept_(session, h.FromDept);
     var qty = params.qty !== undefined && params.qty !== '' ? positiveQty_(params.qty) : Number(h.Qty);
     if (h.Kind === 'WIP') assertOnHand_(h.FromDept, h.ItemCode, qty);
+    else assertStockAvailable_(h.Kind, h.FromDept, h.ItemCode, qty, h.HandoverID);
     var fields = { Status: 'Sent', Qty: qty, SentBy: session.Username, SentDate: new Date() };
     if (params.reference) fields.Reference = String(params.reference).trim();
     if (params.remarks) fields.Remarks = String(params.remarks).trim();
@@ -1056,36 +1147,118 @@ function sendHandover_(session, params) {
   var item = findItem_(link.kind, params.itemCode);
   var qty2 = positiveQty_(params.qty);
   if (link.kind === 'WIP') assertOnHand_(from, item.code, qty2);
+  else assertStockAvailable_(link.kind, from, item.code, qty2, null);
   var rec = newHandover_(session, link, from, to, item, qty2, 'Sent', params);
   logAudit_(session.Username, 'SEND', 'Handovers', rec.HandoverID, '', describeHandover_(rec));
   return { handoverId: rec.HandoverID, status: 'Sent', qty: qty2 };
 }
 
+// Receiving can call Stock Management, which takes seconds. Holding this
+// app's write lock through that made every other entry wait behind it, and
+// after WRITE_LOCK_WAIT_MS fail with "the system is busy". So the lock is
+// held for the checks, let go for the call, and taken again to record the
+// result. Two people confirming the same handover at once are safe: the
+// stock post carries a fixed ID per handover, so Stock Management writes it
+// once, and whoever records second finds it already received.
 function receiveHandover_(session, params) {
-  requirePerm_(session, 'pt.handover.receive');
-  var found = findHandover_(params.handoverId), h = found.h;
-  // Safe to send twice: a second copy finds it already received.
-  if (h.Status === 'Received') return { handoverId: h.HandoverID, status: 'Received', alreadyDone: true };
-  if (h.Status !== 'Sent') throw new Error('Only a sent handover can be received (this one is ' + h.Status.toLowerCase() + ')');
-  requireDept_(session, h.ToDept);
+  var clientTxnId = String(params.clientTxnId || '').trim();
 
-  var stockTxn = String(h.StockTxnId || '');
-  if ((h.Kind === 'RM' || h.Kind === 'FG') && !stockTxn) {
-    var mv = stockMovement_(h);
-    var result = callStockApi_(mv.action, Object.assign({ token: session.Token }, mv.params), 'pt:' + h.HandoverID + ':recv');
-    stockTxn = (result && (result.txnId || result.TxnID)) || 'posted';
+  var first = withWriteLock_(function () {
+    if (clientTxnId) {
+      var prior = findIdempotentResult_(clientTxnId);
+      if (prior) {
+        checkReplay_(prior, 'receiveHandover', session);
+        var replay = prior.result;
+        if (replay && typeof replay === 'object' && !Array.isArray(replay)) replay.duplicate = true;
+        return { done: replay };
+      }
+    }
+    requirePerm_(session, 'pt.handover.receive');
+    var h = findHandover_(params.handoverId).h;
+    // Safe to send twice: a second copy finds it already received.
+    if (h.Status === 'Received') return { done: { handoverId: h.HandoverID, status: 'Received', alreadyDone: true } };
+    if (h.Status !== 'Sent') throw new Error('Only a sent handover can be received (this one is ' + h.Status.toLowerCase() + ')');
+    requireDept_(session, h.ToDept);
+    var posts = (h.Kind === 'RM' || h.Kind === 'FG') && !String(h.StockTxnId || '');
+    if (!posts) return { done: finishReceipt_(session, h.HandoverID, String(h.StockTxnId || ''), clientTxnId) };
+    return { h: h };
+  });
+  if (first.done) return first.done;
+
+  var h = first.h;
+  var mv = stockMovement_(h);
+  var result = callStockApi_(mv.action, Object.assign({ token: session.Token }, mv.params), 'pt:' + h.HandoverID + ':recv');
+  var stockTxn = (result && (result.txnId || result.TxnID)) || 'posted';
+
+  return withWriteLock_(function () { return finishReceipt_(session, h.HandoverID, stockTxn, clientTxnId); });
+}
+
+// Marks a handover received, under the write lock.
+function finishReceipt_(session, handoverId, stockTxn, clientTxnId) {
+  var found = findHandover_(handoverId), h = found.h;
+  var out;
+  if (h.Status === 'Received') {
+    out = { handoverId: h.HandoverID, status: 'Received', stockTxnId: String(h.StockTxnId || stockTxn), alreadyDone: true };
+  } else {
+    if (h.Status !== 'Sent') {
+      // Rejected or cancelled in the moment Stock Management was being
+      // posted. The stock has already moved, so the receipt stands; the
+      // log says what it overrode, for someone to look at.
+      logAudit_(session.Username, 'RECEIVE_AFTER_CLOSE', 'Handovers', h.HandoverID, h.Status, 'Received · ' + stockTxn);
+    }
+    updateHandover_(found, { Status: 'Received', ReceivedBy: session.Username, ReceivedDate: new Date(), StockTxnId: stockTxn });
+    var received = Object.assign({}, h, { Status: 'Received', StockTxnId: stockTxn });
+    // The stock movement is already posted; a problem filing its paperwork
+    // must not undo or fail the receipt. ADMIN_setupAttachments() finishes
+    // any link left undone.
+    try {
+      linkToStock_(received, activeHandoverFiles_(h.HandoverID));
+    } catch (err) {
+      Logger.log('Linking files for ' + h.HandoverID + ' failed: ' + err.message);
+    }
+    try {
+      updateOrderFromDispatch_(received, session);
+    } catch (err) {
+      Logger.log('Updating the order for ' + h.HandoverID + ' failed: ' + err.message);
+    }
+    logAudit_(session.Username, 'RECEIVE', 'Handovers', h.HandoverID, h.Status, 'Received' + (stockTxn ? ' · ' + stockTxn : ''));
+    out = { handoverId: h.HandoverID, status: 'Received', stockTxnId: stockTxn };
   }
-  updateHandover_(found, { Status: 'Received', ReceivedBy: session.Username, ReceivedDate: new Date(), StockTxnId: stockTxn });
-  // The stock movement is already posted; a problem filing its paperwork
-  // must not undo or fail the receipt. ADMIN_setupAttachments() finishes
-  // any link left undone.
-  try {
-    linkToStock_(Object.assign({}, h, { Status: 'Received', StockTxnId: stockTxn }), activeHandoverFiles_(h.HandoverID));
-  } catch (err) {
-    Logger.log('Linking files for ' + h.HandoverID + ' failed: ' + err.message);
+  if (clientTxnId) recordIdempotentResult_(clientTxnId, 'receiveHandover', session.Username, out);
+  return out;
+}
+
+// Raw material and finished goods leaving Stores come out of Stock
+// Management when the other side receives them — which used to be the first
+// moment anyone found out Stores didn't have them: the receiver's confirm
+// failed, and the handover sat as Sent with nobody able to clear it. Checked
+// here too, against the balance Stock Management holds less what Stores has
+// already sent and not yet had received, so the sender hears it instead.
+// Stock Management's own guard is still the boundary; this only moves the
+// message to the person who can act on it.
+var STOCK_TABS = {
+  RM: { sheet: 'RM_Current_Stock', code: 'RM_Code' },
+  FG: { sheet: 'FG_Current_Stock', code: 'FG_Code' }
+};
+
+function assertStockAvailable_(kind, from, code, qty, exceptHandoverId) {
+  if (from !== STOCK_HOLDER || !STOCK_TABS[kind]) return;
+  var tab = STOCK_TABS[kind];
+  var row = readRowByValue_(getStockSpreadsheet_().getSheetByName(tab.sheet), tab.code, code);
+  var balance = row && row.map['CurrentBalance'] !== undefined ? Number(row.values[row.map['CurrentBalance']]) || 0 : 0;
+  var inTransit = 0;
+  readHandovers_().forEach(function (h) {
+    if (h.Status !== 'Sent' || h.Kind !== kind || h.FromDept !== STOCK_HOLDER) return;
+    if (String(h.ItemCode) !== String(code) || h.HandoverID === exceptHandoverId) return;
+    if (h.StockTxnId) return; // already posted (moved over from a request)
+    inTransit += Number(h.Qty) || 0;
+  });
+  var free = roundQty_(balance - inTransit);
+  if (free + 1e-9 < qty) {
+    throw new Error('Stores has ' + roundQty_(balance) + ' of ' + code + ' in Stock Management' +
+                    (inTransit ? ', ' + roundQty_(inTransit) + ' of it already sent and waiting to be received' : '') +
+                    ', so ' + qty + ' can\u2019t be sent. Post the missing receipt in Stock Management first.');
   }
-  logAudit_(session.Username, 'RECEIVE', 'Handovers', h.HandoverID, 'Sent', 'Received' + (stockTxn ? ' · ' + stockTxn : ''));
-  return { handoverId: h.HandoverID, status: 'Received', stockTxnId: stockTxn };
 }
 
 // The movement a received handover makes in Stock Management, booked to the
@@ -1156,7 +1329,7 @@ function wipOnHand_() {
     if (!totals[dept]) totals[dept] = {};
     totals[dept][code] = roundQty_((totals[dept][code] || 0) + n);
   };
-  readSheetAsObjects_(ss.getSheetByName('Handovers')).forEach(function (h) {
+  readHandovers_().forEach(function (h) {
     if (String(h.Kind) !== 'WIP') return;
     var q = Number(h.Qty) || 0;
     if (h.Status === 'Received') bump(h.ToDept, h.ItemCode, q);
@@ -1164,7 +1337,9 @@ function wipOnHand_() {
   });
   readSheetAsObjects_(ss.getSheetByName('WIP_Entries')).forEach(function (e) {
     var q = Number(e.Qty) || 0;
-    bump(e.Dept, e.ItemCode, e.Type === 'Produced' ? q : -q);
+    // Carried: what archived handovers had added or taken away, written by
+    // ADMIN_archiveHandovers with its own sign.
+    bump(e.Dept, e.ItemCode, e.Type === 'Produced' || e.Type === 'Carried' ? q : -q);
   });
   return totals;
 }
@@ -1190,10 +1365,24 @@ function recordWIP_(session, params) {
   var qty = positiveQty_(params.qty);
   var code = String(params.itemCode || '').replace(/\s+/g, ' ').trim();
   if (!code) throw new Error('Pick the element spec');
-  var known = getElementSpecs_().filter(function (x) { return x.code.toLowerCase() === code.toLowerCase(); })[0];
+  var specs = getElementSpecs_();
+  var known = specs.filter(function (x) { return x.code.toLowerCase() === code.toLowerCase(); })[0];
   if (known) code = known.code;
-  // Only the department that makes elements can start a spec nobody has yet.
-  else if (type !== 'Produced') throw new Error('Unknown element spec: ' + code);
+  else {
+    // Only the department that makes elements can start a spec nobody has yet.
+    if (type !== 'Produced') throw new Error('Unknown element spec: ' + code);
+    // A typed name that differs from an existing spec only in spaces, dots,
+    // dashes or case is that spec mistyped. Started anyway, it would sit in
+    // every dropdown for good.
+    var squash = function (t) { return String(t).toLowerCase().replace(/[\s._\-\/]+/g, ''); };
+    var near = specs.filter(function (x) { return squash(x.code) === squash(code); })[0];
+    if (near) throw new Error('Did you mean ' + near.code + '? Pick it from the list rather than typing it.');
+    // A genuinely new spec is a Manager's or Admin's call; specs normally
+    // come from ELE_BOM.
+    if (!isAdmin_(session) && !can_(session, 'pt.handover.any')) {
+      throw new Error(code + ' isn\u2019t an element spec yet. Specs come from ELE_BOM \u2014 ask a Manager or Admin to start a new one.');
+    }
+  }
   if (type !== 'Produced') assertOnHand_(dept, code, qty);
 
   var rec = { EntryID: generateId_('WIP'), Date: new Date(), Dept: dept, ItemCode: code, Type: type, Qty: qty,
@@ -1231,7 +1420,7 @@ function getHandovers_(session, params) {
   var dept = String(params.dept || session.Department || '').trim();
   if (!canSee_(session, dept)) throw new Error('You can only see your own department (' + session.Department + ').');
   var limit = Math.min(Number(params.limit) || 300, 1000);
-  var rows = readSheetAsObjects_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Handovers'))
+  var rows = readHandovers_()
     .filter(function (h) { return h.FromDept === dept || h.ToDept === dept; });
   rows.sort(function (a, b) { return new Date(b.Date).getTime() - new Date(a.Date).getTime(); });
   var counts = handoverFileCounts_();
@@ -1326,9 +1515,24 @@ function attachmentsFolder_(when) {
   }
   if (!root) {
     root = DriveApp.createFolder(ATTACH_ROOT_NAME);
-    var at = rows.indexOf(saved);
-    if (at > -1) writeRowCells_(settings, at + 2, stageCells_(sheetMeta_(settings).map, { Value: root.getId() }));
-    else appendRowByHeader_(settings, { Key: 'ATTACHMENTS_FOLDER_ID', Value: root.getId() });
+    // Stock Management may have made the folder in the same moment (this
+    // script can't take its lock). Look again before saving ours: if it
+    // got there first, use its folder and bin this one, so both apps keep
+    // one folder.
+    invalidateSheetMeta_(settings);
+    var again = readSheetAsObjects_(settings).filter(function (r) { return r.Key === 'ATTACHMENTS_FOLDER_ID'; })[0];
+    var theirs = null;
+    if (again && again.Value && (!saved || String(again.Value) !== String(saved.Value))) {
+      try { theirs = DriveApp.getFolderById(String(again.Value)); } catch (err) { theirs = null; }
+    }
+    if (theirs) {
+      try { root.setTrashed(true); } catch (err) {}
+      root = theirs;
+    } else {
+      var at = rows.indexOf(saved);
+      if (at > -1) writeRowCells_(settings, at + 2, stageCells_(sheetMeta_(settings).map, { Value: root.getId() }));
+      else appendRowByHeader_(settings, { Key: 'ATTACHMENTS_FOLDER_ID', Value: root.getId() });
+    }
   }
   var sub = function (parent, name) {
     var it = parent.getFoldersByName(name);
@@ -1584,6 +1788,152 @@ function ADMIN_migrateToHandovers() {
 }
 
 /* =========================================================================
+   ARCHIVING OLD HANDOVERS
+
+   On-hand totals and every department's screen read the whole Handovers
+   tab, so its size is what a send or a screen load costs. Run
+   ADMIN_archiveHandovers() from the editor once the tab runs to tens of
+   thousands of rows: it moves closed handovers older than monthsToKeep
+   (default 12) to Handovers_Archive. Elements a received WIP handover
+   moved are carried over as one "Carried" WIP entry per department and
+   spec, so on-hand totals don't change. Archived handovers still open, with
+   their files, through findHandover_.
+
+   Safe to stop and run again. Rows are copied to the archive (stamped with
+   the run's ID) before the carried entries are written and before anything
+   leaves Handovers, and a row found in both tabs is finished off rather
+   than copied twice. If a run does stop partway, on-hand totals count those
+   rows twice until the next run finishes them, so run it again straight
+   away. A large first archive can take several runs; the log says
+   runAgain: true while there is more to move.
+   ========================================================================= */
+
+var HANDOVER_ARCHIVE_TAB = 'Handovers_Archive';
+var CLOSED_STATUSES = ['Received', 'Rejected', 'Declined', 'Cancelled'];
+
+function ADMIN_archiveHandovers(monthsToKeep) {
+  monthsToKeep = Number(monthsToKeep) || 12;
+  return withWriteLock_(function () {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = handoversSheet_();
+    var meta = sheetMeta_(sheet);
+    var lastRow = sheet.getLastRow();
+    var report = { archived: 0, finishedFromEarlierRun: 0, carriedEntries: 0, kept: 0 };
+    if (lastRow < 2) { Logger.log(JSON.stringify(report)); return report; }
+
+    var archive = getOrCreateSheet_(ss, HANDOVER_ARCHIVE_TAB, meta.headers.filter(Boolean).concat(['ArchiveRun']));
+    ensureColumns_(archive, meta.headers.filter(Boolean).concat(['ArchiveRun']));
+    var aMeta = sheetMeta_(archive);
+    var archivedRun = {};
+    readSheetAsObjects_(archive).forEach(function (a) { if (a.HandoverID) archivedRun[a.HandoverID] = String(a.ArchiveRun || ''); });
+
+    var wipSheet = getOrCreateSheet_(ss, 'WIP_Entries', TAB_SCHEMA['WIP_Entries']);
+    var carriedRuns = {};
+    readSheetAsObjects_(wipSheet).forEach(function (e) {
+      if (e.Type === 'Carried') carriedRuns[String(e.Remarks || '')] = true;
+    });
+
+    var cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - monthsToKeep);
+    var runId = generateId_('ARC');
+    var values = sheet.getRange(2, 1, lastRow - 1, meta.lastCol).getValues();
+    var toCopy = [], removeRows = [];
+    var carriedByRun = {}; // run -> dept -> spec -> signed qty
+    // Each contiguous block of rows is one delete, and deletes are the slow
+    // part, so a run stops taking rows after MAX_BLOCKS blocks and says to
+    // run it again. That keeps each run well inside Apps Script's time limit.
+    var MAX_BLOCKS = 200, blocks = 0, lastTaken = -1;
+    var take = function (rowNum) {
+      if (rowNum !== lastTaken + 1) {
+        if (blocks >= MAX_BLOCKS) return false;
+        blocks++;
+      }
+      lastTaken = rowNum;
+      removeRows.push(rowNum);
+      return true;
+    };
+
+    var carry = function (run, h) {
+      if (String(h.Kind) !== 'WIP' || h.Status !== 'Received') return;
+      var q = Number(h.Qty) || 0;
+      var byDept = carriedByRun[run] = carriedByRun[run] || {};
+      [[h.ToDept, q], [h.FromDept, -q]].forEach(function (pair) {
+        var d = byDept[pair[0]] = byDept[pair[0]] || {};
+        d[h.ItemCode] = roundQty_((d[h.ItemCode] || 0) + pair[1]);
+      });
+    };
+
+    values.forEach(function (row, i) {
+      var h = {};
+      meta.headers.forEach(function (hd, c) { if (hd) h[hd] = row[c]; });
+      if (!h.HandoverID) { report.kept++; return; }
+      if (archivedRun[h.HandoverID] !== undefined) {
+        // Copied by an earlier run that stopped before removing it.
+        var run = archivedRun[h.HandoverID];
+        if (!take(i + 2)) { report.kept++; report.runAgain = true; return; }
+        if (!carriedRuns['Archive ' + run]) carry(run, h);
+        report.finishedFromEarlierRun++;
+        return;
+      }
+      var when = new Date(h.ReceivedDate || h.ClosedDate || h.Date);
+      if (CLOSED_STATUSES.indexOf(String(h.Status)) === -1 || isNaN(when.getTime()) || when >= cutoff) { report.kept++; return; }
+      if (!take(i + 2)) { report.kept++; report.runAgain = true; return; }
+      toCopy.push(h);
+      carry(runId, h);
+    });
+
+    // 1. Copy to the archive, stamped with this run.
+    if (toCopy.length) {
+      var aRows = toCopy.map(function (h) {
+        var out = new Array(aMeta.lastCol).fill('');
+        Object.keys(h).forEach(function (k) { if (aMeta.map[k] !== undefined) out[aMeta.map[k]] = sheetSafe_(h[k]); });
+        out[aMeta.map['ArchiveRun']] = runId;
+        return out;
+      });
+      archive.getRange(archive.getLastRow() + 1, 1, aRows.length, aMeta.lastCol).setValues(aRows);
+      report.archived = toCopy.length;
+    }
+
+    // 2. Carried WIP entries, one per department and spec, per run.
+    var wMeta = sheetMeta_(wipSheet);
+    var wRows = [];
+    Object.keys(carriedByRun).forEach(function (run) {
+      Object.keys(carriedByRun[run]).forEach(function (dept) {
+        Object.keys(carriedByRun[run][dept]).forEach(function (spec) {
+          var q = carriedByRun[run][dept][spec];
+          if (!q) return;
+          var rec = { EntryID: generateId_('WIP'), Date: new Date(), Dept: dept, ItemCode: spec, Type: 'Carried',
+                      Qty: q, By: 'archive', Remarks: 'Archive ' + run };
+          var out = new Array(wMeta.lastCol).fill('');
+          Object.keys(rec).forEach(function (k) { if (wMeta.map[k] !== undefined) out[wMeta.map[k]] = sheetSafe_(rec[k]); });
+          wRows.push(out);
+        });
+      });
+    });
+    if (wRows.length) {
+      wipSheet.getRange(wipSheet.getLastRow() + 1, 1, wRows.length, wMeta.lastCol).setValues(wRows);
+      report.carriedEntries = wRows.length;
+    }
+    SpreadsheetApp.flush();
+
+    // 3. Remove from Handovers, bottom-up in contiguous blocks, so each
+    //    delete leaves the tab consistent if the run stops here.
+    removeRows.sort(function (a, b) { return b - a; });
+    var i = 0;
+    while (i < removeRows.length) {
+      var end = removeRows[i], start = end;
+      while (i + 1 < removeRows.length && removeRows[i + 1] === start - 1) { start = removeRows[++i]; }
+      sheet.deleteRows(start, end - start + 1);
+      i++;
+    }
+    _handoversCache_ = null;
+    logAudit_('admin', 'ARCHIVE_HANDOVERS', 'Handovers', runId, '', JSON.stringify(report));
+    Logger.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
+
+/* =========================================================================
    TRACEABILITY
 
    No permission gate — this is read-only, and tracing an element is useful
@@ -1596,15 +1946,89 @@ function traceElement_(params) {
   var elementCode = String(params.elementCode || '').trim();
   if (!elementCode) throw new Error('Element code is required');
 
-  var elementRow = readRowByValue_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Elements'), 'ElementCode', elementCode);
-  if (!elementRow) throw new Error('Element not found: ' + elementCode);
-  var element = rowToObject_(elementRow);
+  // Elements tracked here before ELE Tracker existed.
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var elementRow = readRowByValue_(ss.getSheetByName('Elements'), 'ElementCode', elementCode);
+  if (elementRow) {
+    var element = rowToObject_(elementRow);
+    var log = readSheetAsObjects_(ss.getSheetByName('Element_Stage_Log'))
+      .filter(function (r) { return r.ElementCode === elementCode; });
+    log.sort(function (a, b) { return new Date(a.Date).getTime() - new Date(b.Date).getTime(); });
+    var batchRow = readRowByValue_(ss.getSheetByName('MPP_Batches'), 'MPPCode', element.SlitMPPCode);
+    return { element: element, log: log, sourceBatch: batchRow ? rowToObject_(batchRow) : null };
+  }
 
-  var log = readSheetAsObjects_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Element_Stage_Log'))
-    .filter(function (r) { return r.ElementCode === elementCode; });
-  log.sort(function (a, b) { return new Date(a.Date).getTime() - new Date(b.Date).getTime(); });
+  // Everything since: ELE Tracker's batches. Nothing writes the tabs above
+  // any more, so without this every new code came back "not found".
+  var fromEle = traceEleBatch_(elementCode);
+  if (fromEle) return fromEle;
+  throw new Error(ELE_SHEET_ID
+    ? 'No element or ELE batch found for ' + elementCode + '.'
+    : 'Element not found: ' + elementCode + '. Batches are tracked in ELE Tracker now \u2014 look it up there, ' +
+      'or ask an Admin to set ELE_SHEET_ID in this app\u2019s script so Trace finds them here.');
+}
 
-  var batchRow = readRowByValue_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MPP_Batches'), 'MPPCode', element.SlitMPPCode);
+// ELE's stage tabs, in card order, with the stage name shown in the trace.
+var ELE_STAGE_TABS = [
+  ['Winding', 'Winding'], ['PaperMaskingSpray', 'Spray & Core Cleaning'], ['HeatStabilization', 'Heat Stabilization'],
+  ['ShortClearing', 'Short Clearing'], ['Welding', 'Welding & Soldering'], ['PouringCuring', 'Pouring & Curing'],
+  ['PouringElectricalPacking', 'Electrical Testing & Packing'], ['BDVFinalTesting', 'BDV & Final Testing']
+];
 
-  return { element: element, log: log, sourceBatch: batchRow ? rowToObject_(batchRow) : null };
+function isVoided_(r) {
+  return r.Voided === true || String(r.Voided).toUpperCase() === 'TRUE';
+}
+
+// An ELE batch shaped like an element trace, so the Trace screen shows it
+// unchanged: the batch's state, then one line per stage entry (and per
+// stage marked not applicable), oldest first.
+function traceEleBatch_(code) {
+  if (!ELE_SHEET_ID) return null;
+  var ele = SpreadsheetApp.openById(ELE_SHEET_ID);
+  var wanted = code.toLowerCase();
+  var batch = readSheetAsObjects_(ele.getSheetByName('BatchMaster')).filter(function (b) {
+    return String(b.MasterBatchNo).toLowerCase() === wanted || String(b.ElementBatchNo).toLowerCase() === wanted;
+  })[0];
+  if (!batch) return null;
+  var no = String(batch.MasterBatchNo);
+  var has = function (v) { return v !== '' && v !== null && v !== undefined; };
+
+  var log = [];
+  ELE_STAGE_TABS.forEach(function (t) {
+    readSheetAsObjects_(ele.getSheetByName(t[0])).forEach(function (r) {
+      if (String(r.MasterBatchNo) !== no || isVoided_(r)) return;
+      var parts = [];
+      if (has(r.TotalQty)) parts.push('Total ' + r.TotalQty);
+      if (has(r.GoodQty)) parts.push('Good ' + r.GoodQty);
+      if (has(r.RejectQty)) parts.push('Reject ' + r.RejectQty);
+      log.push({ Date: r.Date, Stage: t[1] + (has(r.Shift) ? ' (shift ' + r.Shift + ')' : ''), Result: parts.join(' \u00b7 '),
+                 Operator: r.OperatorName || '', Notes: r.Remarks || '' });
+    });
+  });
+  readSheetAsObjects_(ele.getSheetByName('Stage_Skips')).forEach(function (r) {
+    if (String(r.MasterBatchNo) !== no || isVoided_(r)) return;
+    log.push({ Date: r.Date, Stage: r.Stage, Result: 'Not applicable', Operator: r.By || '', Notes: r.Reason || '' });
+  });
+  var qa = readSheetAsObjects_(ele.getSheetByName('FinalQA_Results')).filter(function (r) {
+    return String(r.MasterBatchNo) === no && !isVoided_(r);
+  });
+  if (qa.length) {
+    log.push({ Date: batch.CompletedDate || '', Stage: 'Final QA', Result: batch.QAVerdict || (qa.length + ' reading' + (qa.length === 1 ? '' : 's')),
+               Operator: qa[0].FOAInspectorName || '', Notes: qa[0].Notes || '' });
+  }
+  log.sort(function (a, b) {
+    var x = new Date(a.Date).getTime(), y = new Date(b.Date).getTime();
+    return (isNaN(x) ? Infinity : x) - (isNaN(y) ? Infinity : y);
+  });
+
+  var spec = [has(batch.MFD) ? batch.MFD + ' MFD' : '', has(batch.Voltage) ? batch.Voltage + ' V' : ''].filter(Boolean).join(' \u00b7 ');
+  return {
+    element: {
+      ElementCode: no, Spec: spec || batch.FGCode || '', CurrentStage: batch.CurrentStage, CurrentStatus: batch.Status,
+      Customer: batch.CustomerName || '', WindingDate: batch.DatePlanning || batch.CreatedDate || '', SlitMPPCode: batch.FilmBatchNo || ''
+    },
+    log: log,
+    sourceBatch: null,
+    source: 'ELE Tracker'
+  };
 }
