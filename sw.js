@@ -24,13 +24,16 @@
 // of being stuck on an old cached one. Keep this in step with APP_VERSION
 // in index.html.
 const CACHE_PREFIX = 'production-tracker-shell-';
-const CACHE_VERSION = CACHE_PREFIX + 'v4';
+const CACHE_VERSION = CACHE_PREFIX + 'v5';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
   'https://calgas.github.io/Stock-Management/logo/icon-192.png',
-  'https://calgas.github.io/Stock-Management/logo/icon-512.png'
+  'https://calgas.github.io/Stock-Management/logo/icon-512.png',
+  'https://calgas.github.io/Stock-Management/logo/CALGAS%20CAPACITORS-logo-768x240.jpg',
+  // The Overview's charts use Stock Management's copy of Chart.js.
+  'https://calgas.github.io/Stock-Management/vendor/chart.umd.min.js'
 ];
 
 self.addEventListener('install', (e) => {
