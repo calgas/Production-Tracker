@@ -1,4 +1,4 @@
-# CALGAS Capacitors — Production Tracker 3.1
+# CALGAS Capacitors — Production Tracker 3.2
 
 Material moving through the factory, one department to the next, and back when it has to go back.
 
@@ -7,6 +7,57 @@ Purchase → Stores → Winding → Spray → Short Clearance → Assembly-MFD /
 ```
 
 Metallization and Slitting are gone. Nothing is written for them any more, and their old records stay in the sheet as history.
+
+## What changed in 3.2
+
+**Looks and works like Stock Management.** Same design, menu (collapsible on a computer, a bottom bar on a phone), loading screen, dropdowns that reopen on a click, checkbox filters, sortable tables with paging, and Excel export. On a phone, every table turns into cards, so Receive, Reject and Send are always on screen.
+
+**Five pages:**
+
+- **Overview** — what's waiting for you, what's on the move, open and late orders, and elements on hand. Four charts: elements along the route, orders by status, handovers received over the last 14 days, and open handovers by how long they've waited. **Needs attention** lists late orders, orders due this week, and handovers left waiting two days or more. Each one opens where it can be dealt with.
+- **Orders** — the whole order book, with search and filters. Tap an order to see what has gone to Dispatch against it, and to edit, start, close or cancel it.
+- **Handovers** — one department's work: what's waiting, elements on hand (a tile per spec, plus recent entries), what it has sent or asked for, and what's recently settled. **Send or return**, **Ask a neighbour** and **Record elements** open as forms.
+- **History** — every handover and element entry, filterable by department, kind, status and dates, and exportable.
+- **Trace** — type an order (ORD-…), a handover (HO-…), an item code or an element spec. You see where it went, who handled it and when, and for a spec, how many each department holds now. Old element codes (ELM-…) still show their history, for Managers and Admins.
+
+**Orders move on.** An order goes Pending → In production → Part dispatched → Dispatched, and can be Closed (short-closed, with a reason) or Cancelled (with a reason, only while nothing has gone). "Dispatched" is counted from the Stores → Dispatch handovers that name the order, so a dispatch, a return or a correction moves it by itself. When Stores sends finished goods to Dispatch, the form offers the open orders for that item. A wrong item, an order that's closed, or more than is left is refused. Orders can be edited (customer, quantity, due date, the customer's PO, remarks), but never below what has been dispatched. Orders past their due date are marked **Late**.
+
+**Part receipts.** The receiver can take less than was sent, with a note saying why (e.g. 95 of 100, "5 damaged"). Stock Management is posted only for what arrived. The rest becomes its own handover, still on its way from the sender, so it can be received later or rejected back.
+
+**Reasons.** Reject, decline and cancel ask why, and the other side sees it.
+
+**Corrections, for Managers and Admins** (anyone who can act for any department):
+
+- A received handover's quantity can be corrected, or the handover reversed.
+- An element entry can be corrected or reversed.
+- Nothing is deleted: the record keeps the original quantity, who changed it, when and why, and the audit log has both sides.
+- Where the handover posted to Stock Management, the difference is posted there as an Adjustment, booked to the same department. Stock Management's no-negative rule still applies.
+- A correction that would leave a department with fewer elements than it has already sent on or used is refused.
+
+**Morning digest.** Each morning at about 7:05, each department's people get one mail listing what's waiting for them. Dispatch's mail also lists the orders due in the next three days, or late. Admins get the whole picture. Nobody is mailed when nothing is waiting for them. To turn it off, set the Script Property `PT_DIGEST` to `off`. `ADMIN_previewDigest()` shows what would be sent, without sending it.
+
+**Security and housekeeping:**
+
+- Only a Production Tracker sign-in is accepted here. A Stock Management or ELE Tracker session for the same person isn't.
+- Ready for sign-in tokens stored hashed (`sha256:…`) in the Sessions tab.
+- An unanswered request can be looked up only by the person who sent it.
+- Typed text is trimmed and length-limited.
+- File uploads commit before releasing their lock.
+- Every failed request is logged in a new **ErrorLog** tab.
+- File counts read two columns instead of the whole Attachments tab.
+- A nightly job keeps the Idempotency log to 45 days and the ErrorLog to 90.
+- The page has a Content-Security-Policy.
+
+No new permissions. Production Tracker's switches in Team & Access are the same six.
+
+### Deploying 3.2
+
+1. **Backend.** Paste this Code.gs (3.2.0) and deploy it as a new version of the existing deployment (Deploy → Manage deployments → Edit → New version), so the URL stays the same.
+2. Run **`ADMIN_setupSheet()`** once. It adds the new columns and the ErrorLog tab. Writes add any missing columns themselves too, so this step isn't urgent.
+3. Run **`ADMIN_installTriggers()`** once. Google asks to approve sending mail and running daily jobs.
+4. **Frontend.** Push index.html and sw.js. Phones get an update bar.
+
+The 3.1 app keeps working against the 3.2 backend until the new page reaches everyone. The difference: reject, decline and cancel now need a reason.
 
 ## How a handover works
 
@@ -90,10 +141,10 @@ Access is managed in Stock Management, under **Team & Access**, on the **Product
 |---|---|
 | Send and return from own department | Send, answer requests, cancel what you sent |
 | Receive into own department | Receive, reject, ask a neighbour, cancel your requests |
-| Act for any department | All of the above, for any department (a Manager, by default) |
+| Act for any department | All of the above, for any department, and correcting or reversing entries (a Manager, by default) |
 | Record produced, scrapped and used | Element entries in your own department |
 | See every department | Look at any department's page (Management, by default) |
-| Place orders | The order form on the Overview |
+| Place orders | Placing, editing, closing and cancelling orders |
 
 Admin holds everything. Marketing isn't a department on the route, so whoever takes orders needs **Place orders** granted to them personally.
 
