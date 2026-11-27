@@ -1,0 +1,6 @@
+{
+  "name": "CALGAS Orders & Dispatch (moved)",
+  "short_name": "Dispatch",
+  "start_url": "https://calgas.github.io/Orders-Dispatch/",
+  "display": "standalone"
+}
